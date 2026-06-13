@@ -46,4 +46,15 @@ struct VisualSearchTests {
         #expect(VisualSearch.search(query: [1, 0, 0], indexes: [("a", idx)]).isEmpty)
         #expect(VisualSearch.search(query: [1, 0], indexes: []).isEmpty)
     }
+
+    @Test func cosineFloorDropsWeakTopMatch() {
+        // A weak best-of-a-bad-batch (cos 0.04) is dropped entirely — the false-positive fix.
+        let weak = Self.index(vectors: [[0.04, 0, 0]], shots: [(1, 0, 2)])
+        #expect(VisualSearch.search(query: [1, 0, 0], indexes: [("a", weak)], minScore: 0.05).isEmpty)
+        // Without a floor the relative cutoff still surfaces it.
+        #expect(VisualSearch.search(query: [1, 0, 0], indexes: [("a", weak)]).count == 1)
+        // A real match clears the floor.
+        let strong = Self.index(vectors: [[0.5, 0, 0]], shots: [(1, 0, 2)])
+        #expect(VisualSearch.search(query: [1, 0, 0], indexes: [("a", strong)], minScore: 0.05).count == 1)
+    }
 }

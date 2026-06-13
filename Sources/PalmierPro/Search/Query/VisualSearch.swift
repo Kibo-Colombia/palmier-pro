@@ -10,12 +10,13 @@ enum VisualSearch {
         let score: Float
     }
 
-    /// Top hits across assets, best-per-shot, with a relative cutoff against the top score.
+    /// Top hits across assets, best-per-shot
     static func search(
         query: [Float],
         indexes: [(assetID: String, index: EmbeddingStore.AssetIndex)],
         limit: Int = 20,
-        relativeCutoff: Float = 0.85
+        relativeCutoff: Float = 0.85,
+        minScore: Float? = nil
     ) -> [Hit] {
         var hits: [Hit] = []
         for (assetID, index) in indexes {
@@ -46,6 +47,9 @@ enum VisualSearch {
             }
         }
         hits.sort { $0.score > $1.score }
+        if let minScore {
+            hits = hits.filter { $0.score >= minScore }
+        }
         guard let top = hits.first?.score, top > 0 else { return [] }
         let floor = top * relativeCutoff
         return Array(hits.prefix(limit).filter { $0.score >= floor })

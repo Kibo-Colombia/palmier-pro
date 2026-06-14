@@ -136,7 +136,7 @@ extension MediaTab {
         }
     }
 
-    private func spokenRow(_ hit: SpokenSearch.Hit) -> some View {
+    private func spokenRow(_ hit: TranscriptSearch.Hit) -> some View {
         let asset = editor.mediaAssets.first { $0.id == hit.assetID }
         let range = hit.start...max(hit.end, hit.start + 0.1)
         let thumbW = CGFloat(thumbnailSize) * 1.4
@@ -218,7 +218,7 @@ extension MediaTab {
         momentSearchTask = Task {
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
-            let spoken = await SpokenSearch.search(query: query, assets: assets)
+            let spoken = TranscriptSearch.search(query: query, assets: assets)
             let visual = await coordinator.search(query: query)
             guard !Task.isCancelled else { return }
             visualHits = visual

@@ -26,7 +26,7 @@ struct MediaTab: View {
     // Drop + marquee
     @State var isDropTargeted = false
     @State var visualHits: [VisualSearch.Hit] = []
-    @State var spokenHits: [SpokenSearch.Hit] = []
+    @State var spokenHits: [TranscriptSearch.Hit] = []
     @State var collapsedSearchSections: Set<String> = []
     @State var momentSearchTask: Task<Void, Never>?
     @State var assetFrames: [String: CGRect] = [:]

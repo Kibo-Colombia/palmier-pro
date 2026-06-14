@@ -9,7 +9,7 @@ struct EmbeddingStoreTests {
         defer { try? FileManager.default.removeItem(at: EmbeddingStore.diskURL(key)) }
 
         let dim = 16
-        let header = EmbeddingStore.Header(model: "test-model", modelVersion: 1, samplerVersion: 1, dim: dim, count: 3, sourceStamp: "1234-56.7")
+        let header = EmbeddingStore.Header(model: "test-model", modelVersion: 1, samplerVersion: 1, dim: dim, count: 3)
         let rows = [
             EmbeddingStore.Row(time: 1.25, shotStart: 0, shotEnd: 4.5),
             EmbeddingStore.Row(time: 6.0, shotStart: 4.5, shotEnd: 9.0),
@@ -20,7 +20,6 @@ struct EmbeddingStoreTests {
 
         let loaded = try EmbeddingStore.load(key: key)
         #expect(loaded.header == header)
-        #expect(loaded.header.sourceStamp == "1234-56.7")
         #expect(loaded.rows.count == 3)
         #expect(loaded.rows[1].time == 6.0)
         #expect(loaded.rows[2].shotEnd == 20.0)

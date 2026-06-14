@@ -72,15 +72,6 @@ actor TranscriptCache {
         return FileManager.default.fileExists(atPath: diskURL(key).path)
     }
 
-    /// Cheap identity of the cached transcript (size + mtime); nil when absent.
-    nonisolated static func diskStamp(for url: URL) -> String? {
-        guard let key = key(for: url),
-              let attrs = try? FileManager.default.attributesOfItem(atPath: diskURL(key).path),
-              let size = (attrs[.size] as? NSNumber)?.int64Value,
-              let mtime = attrs[.modificationDate] as? Date else { return nil }
-        return "\(size)-\(mtime.timeIntervalSince1970)"
-    }
-
     /// Disk-only read
     nonisolated static func cachedOnDisk(for url: URL) -> TranscriptionResult? {
         guard let key = key(for: url),

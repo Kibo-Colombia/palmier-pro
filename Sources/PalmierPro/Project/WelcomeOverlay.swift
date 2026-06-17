@@ -22,7 +22,7 @@ struct WelcomeOverlay: View {
     private var card: some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.lg) {
             VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
-                Text("Welcome to MiraiKibo Studio")
+                Text("Welcome to Koma")
                     .font(.system(size: AppTheme.FontSize.title2, weight: .light))
                     .tracking(AppTheme.Tracking.tight)
                     .foregroundStyle(AppTheme.Text.primaryColor)

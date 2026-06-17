@@ -48,8 +48,9 @@ enum AppTheme {
         static let timecodeNSColor = NSColor(red: 0.95, green: 0.6, blue: 0.2, alpha: 1)
         static let timecodeColor = Color(timecodeNSColor)
 
-        /// Warm off-white
-        static let primary = Color(red: 0.961, green: 0.937, blue: 0.894)
+        /// MiraiKibo Studio Blue (#3b7ab5) — the brand accent for interactive
+        /// states (focus rings, selection, drop targets, prominent fills, .tint).
+        static let primary = Color(red: 59 / 255, green: 122 / 255, blue: 181 / 255)
 
         /// Vibrant highlight used by the onboarding tour spotlight.
         static let spotlight = Color(red: 1.0, green: 0.27, blue: 0.27)

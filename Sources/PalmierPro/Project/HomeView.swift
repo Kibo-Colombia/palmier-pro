@@ -143,9 +143,9 @@ private struct WelcomeTitle: View {
 
     private var title: String {
         if let first = account.account?.user.firstName {
-            return "Welcome to Palmier Pro, \(first)"
+            return "Welcome to MiraiKibo Studio, \(first)"
         }
-        return "Welcome to Palmier Pro"
+        return "Welcome to MiraiKibo Studio"
     }
 }
 
@@ -205,7 +205,7 @@ final class HomeWindowController: NSWindowController {
         let window = NSWindow(contentViewController: hostingController)
         window.setContentSize(AppTheme.Window.homeDefault)
         window.minSize = AppTheme.Window.homeMin
-        window.title = "Palmier Pro"
+        window.title = "MiraiKibo Studio"
         window.setFrameAutosaveName("PalmierProHome-v2")
         window.appearance = NSAppearance(named: .darkAqua)
         window.backgroundColor = AppTheme.Background.base.withAlphaComponent(0.4)

@@ -25,7 +25,8 @@ struct CapsuleButtonStyle: ButtonStyle {
 
         private var foreground: AnyShapeStyle {
             variant == .prominent
-                ? AnyShapeStyle(AppTheme.Background.baseColor)
+                // White on the Studio-Blue accent fill (MiraiKibo: text on a colored fill is pure white).
+                ? AnyShapeStyle(Color.white)
                 : AnyShapeStyle(AppTheme.Text.secondaryColor)
         }
         private var background: AnyShapeStyle {

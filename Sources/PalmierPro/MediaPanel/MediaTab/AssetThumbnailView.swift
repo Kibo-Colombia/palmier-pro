@@ -20,6 +20,7 @@ struct AssetThumbnailView: View {
             .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.sm))
             .overlay(alignment: .topLeading) { thumbnailBadges }
             .overlay(alignment: .topTrailing) { hoverActions }
+            .overlay(alignment: .bottomLeading) { labelChipsOverlay }
             .overlay(alignment: .bottomTrailing) { durationOverlay }
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.Radius.sm)
@@ -181,6 +182,14 @@ struct AssetThumbnailView: View {
     private var durationOverlay: some View {
         if showsDurationBadge {
             durationBadge.padding(AppTheme.Spacing.xs)
+        }
+    }
+
+    @ViewBuilder
+    private var labelChipsOverlay: some View {
+        if (asset.type == .video || asset.type == .image), !asset.isGenerating, !isMissing {
+            LabelChips(url: asset.url)
+                .padding(AppTheme.Spacing.xs)
         }
     }
 

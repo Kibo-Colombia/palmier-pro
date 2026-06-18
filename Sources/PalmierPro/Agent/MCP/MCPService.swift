@@ -35,7 +35,7 @@ final class MCPService {
     func start() {
         let httpServer = MCPHTTPServer(port: Self.port) { [weak self] in
             let server = Server(
-                name: "palmier-pro",
+                name: "koma",
                 version: "1.0.0",
                 instructions: AgentInstructions.serverInstructions,
                 capabilities: .init(

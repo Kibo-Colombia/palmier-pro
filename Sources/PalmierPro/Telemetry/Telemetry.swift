@@ -39,7 +39,7 @@ enum Telemetry {
             options.enableUncaughtNSExceptionReporting = true
             if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
                let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String {
-                options.releaseName = "palmier-pro@\(version)+\(build)"
+                options.releaseName = "koma@\(version)+\(build)"
             }
         }
         didStart = true

@@ -22,9 +22,9 @@ echo "Streaming OSLog (subsystem=io.palmier.pro). Ctrl-C to quit app and stop." 
 echo >&2
 
 cleanup() {
-    pid=$(pgrep -f "Koma.app/Contents/MacOS/PalmierPro" | head -1 || true)
+    pid=$(pgrep -f "Koma.app/Contents/MacOS/Koma" | head -1 || true)
     if [ -n "$pid" ]; then
-        osascript -e 'quit app "PalmierPro"' 2>/dev/null || kill "$pid" 2>/dev/null || true
+        osascript -e 'quit app "Koma"' 2>/dev/null || kill "$pid" 2>/dev/null || true
     fi
 }
 trap cleanup INT TERM EXIT

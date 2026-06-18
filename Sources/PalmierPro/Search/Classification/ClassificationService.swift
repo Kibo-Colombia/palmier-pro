@@ -14,6 +14,17 @@ final class ClassificationService {
     /// Per-file top label tokens keyed by file path — the observable lookup the library grid
     /// filters on. Populated as assets get classified (lazily per card and via `classifyAll`).
     private(set) var tokensByPath: [String: Set<String>] = [:]
+    /// Ranked file labels keyed by path — used to pick a clip's strongest tag within a facet
+    /// when grouping the library.
+    private(set) var fileLabelsByPath: [String: [FileLabel]] = [:]
+
+    /// The clip's strongest label within a facet ("set" → "set:indoor"), or nil if untagged there.
+    func topToken(forPath path: String, facet: String) -> String? {
+        (fileLabelsByPath[path] ?? [])
+            .filter { $0.token.hasPrefix("\(facet):") }
+            .max { $0.coverage * Double($0.peak) < $1.coverage * Double($1.peak) }?
+            .token
+    }
 
     @ObservationIgnored private var labelVectors: LabelVectors?
     @ObservationIgnored private var memory: [String: AssetLabels] = [:]
@@ -83,6 +94,7 @@ final class ClassificationService {
 
     private func record(_ labels: AssetLabels, path: String) {
         tokensByPath[path] = Set(labels.file.map(\.token))
+        fileLabelsByPath[path] = labels.file
     }
 
     private func ensureLabelVectors(vocab: Vocabulary, embedder: VisualEmbedder, fingerprint: String) async -> LabelVectors? {

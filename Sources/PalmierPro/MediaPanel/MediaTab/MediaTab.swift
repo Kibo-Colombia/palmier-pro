@@ -10,6 +10,8 @@ struct MediaTab: View {
     @State var filterAI = false
     /// Classification tokens the library is scoped to (M2). Empty = no label filter.
     @State var filterLabels: Set<String> = []
+    /// In Grouped view, the facet to section the library by (e.g. "set"); nil = group by folder.
+    @State var groupByFacet: String? = nil
     @State var searchQuery: String = ""
     @State var thumbnailSize: Double = 80
     @State var viewMode: ViewMode = .folder
@@ -387,6 +389,17 @@ struct MediaTab: View {
                     }
                 }
             }
+            Divider()
+            Section("Group by") {
+                Button { setGroupBy(nil) } label: {
+                    Label("Folder", systemImage: groupByFacet == nil ? "checkmark" : "")
+                }
+                ForEach(Vocabulary.current().facets, id: \.id) { facet in
+                    Button { setGroupBy(facet.id) } label: {
+                        Label(facetTitle(facet.id), systemImage: groupByFacet == facet.id ? "checkmark" : "")
+                    }
+                }
+            }
         }
 
         toolbarMenuIcon(systemName: "arrow.up.arrow.down") {
@@ -509,6 +522,24 @@ struct MediaTab: View {
         filterTypes.removeAll()
         filterAI = false
         filterLabels.removeAll()
+    }
+
+    private func setGroupBy(_ facet: String?) {
+        groupByFacet = facet
+        if facet != nil, viewMode != .grouped { setViewMode(.grouped) }
+    }
+
+    /// Human-readable facet name for the "Group by" menu and section headers.
+    func facetTitle(_ id: String) -> String {
+        switch id {
+        case "subj": "Subject"
+        case "act": "Action"
+        case "set": "Setting"
+        case "shot": "Framing"
+        case "mood": "Mood"
+        case "use": "Usability"
+        default: id.capitalized
+        }
     }
 
     var assetsInCurrentFolder: [MediaAsset] {

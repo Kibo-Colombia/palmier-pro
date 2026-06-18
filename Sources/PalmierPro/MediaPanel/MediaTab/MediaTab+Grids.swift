@@ -169,7 +169,17 @@ extension MediaTab {
 // MARK: - Grouped mode (folder sections with dividers)
 
 extension MediaTab {
+    /// Grouped view dispatches on the chosen dimension: by folder (default) or by a label facet.
+    @ViewBuilder
     var groupedGridView: some View {
+        if let facet = groupByFacet {
+            labelGroupedView(facet: facet)
+        } else {
+            folderGroupedView
+        }
+    }
+
+    var folderGroupedView: some View {
         // Bucket once so each section is O(1).
         let bucketed = editor.mediaAssets.reduce(into: [String?: [MediaAsset]]()) { dict, asset in
             dict[asset.folderId, default: []].append(asset)
@@ -364,6 +374,113 @@ extension MediaTab {
                 }
             }
         }
+    }
+
+    // MARK: - Grouped by label facet
+
+    private var otherSectionKey: String { "__other__" }
+
+    /// Section the library by each clip's strongest tag within a facet. Every clip lands in
+    /// exactly one section (its top label, or "Other" if untagged here), keeping ids unique.
+    func labelGroupedView(facet: String) -> some View {
+        let svc = ClassificationService.shared
+        var buckets: [String: [MediaAsset]] = [:]
+        for asset in sortAndFilter(editor.mediaAssets) {
+            let key = (asset.type == .video || asset.type == .image)
+                ? (svc.topToken(forPath: asset.url.path, facet: facet) ?? otherSectionKey)
+                : otherSectionKey
+            buckets[key, default: []].append(asset)
+        }
+        let labelKeys = buckets.keys.filter { $0 != otherSectionKey }.sorted()
+        let sectionKeys = labelKeys + (buckets[otherSectionKey] != nil ? [otherSectionKey] : [])
+        var orderedIds: [String] = []
+        for key in sectionKeys where !collapsedGroupedKeys.contains(key) {
+            orderedIds.append(contentsOf: (buckets[key] ?? []).map(\.id))
+        }
+        return GeometryReader { geo in
+            let dims = gridDimensions(width: geo.size.width)
+            ScrollViewReader { proxy in
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+                        ForEach(sectionKeys, id: \.self) { key in
+                            labelSection(
+                                key: key,
+                                title: key == otherSectionKey ? "Other" : String(key.drop { $0 != ":" }.dropFirst()),
+                                assets: buckets[key] ?? [],
+                                tileWidth: dims.tileWidth,
+                                spacing: dims.spacing
+                            )
+                        }
+                    }
+                    .padding(AppTheme.Spacing.md)
+                }
+                .coordinateSpace(name: "mediaGrid")
+                .onPreferenceChange(AssetFramePreferenceKey.self) { frames in
+                    assetFrames = frames
+                    if editor.mediaPanelColumnCount != dims.cols { editor.mediaPanelColumnCount = dims.cols }
+                }
+                .onAppear { publishOrderedIds(orderedIds) }
+                .onChange(of: orderedIds) { _, ids in publishOrderedIds(ids) }
+                .onChange(of: editor.mediaPanelScrollTarget) { _, target in
+                    guard let target else { return }
+                    withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(target, anchor: .center) }
+                    editor.mediaPanelScrollTarget = nil
+                }
+                .onTapGesture { clearSelections() }
+                .overlay { marqueeOverlay }
+                .gesture(marqueeGesture)
+            }
+        }
+    }
+
+    @ViewBuilder
+    fileprivate func labelSection(key: String, title: String, assets: [MediaAsset], tileWidth: CGFloat, spacing: CGFloat) -> some View {
+        let isCollapsed = collapsedGroupedKeys.contains(key)
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
+            HStack(spacing: AppTheme.Spacing.xs) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        if isCollapsed { collapsedGroupedKeys.remove(key) }
+                        else { collapsedGroupedKeys.insert(key) }
+                    }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: AppTheme.FontSize.xxs, weight: .semibold))
+                        .foregroundStyle(AppTheme.Text.tertiaryColor)
+                        .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+                        .frame(width: AppTheme.IconSize.xs, height: AppTheme.IconSize.xs)
+                        .hoverHighlight(cornerRadius: AppTheme.Radius.xsSm)
+                }
+                .buttonStyle(.plain)
+                .focusable(false)
+                .help(isCollapsed ? "Expand" : "Collapse")
+
+                Text(title)
+                    .font(.system(size: AppTheme.FontSize.sm, weight: .semibold))
+                    .foregroundStyle(AppTheme.Text.primaryColor)
+                Text("\(assets.count)")
+                    .font(.system(size: AppTheme.FontSize.xs))
+                    .foregroundStyle(AppTheme.Text.mutedColor)
+                    .monospacedDigit()
+                Spacer(minLength: 0)
+            }
+
+            if !isCollapsed {
+                Rectangle()
+                    .fill(AppTheme.Border.subtleColor)
+                    .frame(height: 0.5)
+
+                let columns = [GridItem(.adaptive(minimum: thumbnailSize), spacing: spacing)]
+                LazyVGrid(columns: columns, alignment: .leading, spacing: spacing) {
+                    ForEach(assets) { asset in
+                        assetCellView(for: asset)
+                            .frame(width: tileWidth)
+                            .id(asset.id)
+                    }
+                }
+            }
+        }
+        .padding(AppTheme.Spacing.xs)
     }
 }
 

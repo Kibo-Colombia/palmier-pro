@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum HomeSection { case projects, library }
+enum HomeSection: Hashable { case projects, library, space(UUID) }
 
 struct HomeView: View {
     private let columns = [
@@ -35,6 +35,7 @@ struct HomeView: View {
         switch section {
         case .projects: projectsContent
         case .library: LibraryView()
+        case .space(let id): SpaceDetailView(spaceID: id, onDeleted: { section = .library })
         }
     }
 
@@ -162,6 +163,7 @@ private struct WelcomeTitle: View {
 
 private struct HomeSidebar: View {
     @Bindable private var account = AccountService.shared
+    @State private var spaces = SpaceRegistry.shared
     @Binding var section: HomeSection
 
     var body: some View {
@@ -190,6 +192,8 @@ private struct HomeSidebar: View {
                     isSelected: section == .library,
                     action: { section = .library }
                 )
+
+                spacesSection
 
                 Divider()
                     .padding(.horizontal, AppTheme.Spacing.sm)
@@ -220,6 +224,36 @@ private struct HomeSidebar: View {
             .padding(.bottom, 10)
         }
         .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Spaces = saved, non-destructive workspaces carved from the Library. Listed inline so a
+    /// Space is one click from Projects and Library, the surfaces it draws from and feeds.
+    @ViewBuilder
+    private var spacesSection: some View {
+        Text("Spaces")
+            .font(.system(size: AppTheme.FontSize.xxs, weight: .semibold))
+            .foregroundStyle(AppTheme.Text.tertiaryColor)
+            .tracking(AppTheme.Tracking.wide)
+            .padding(.horizontal, AppTheme.Spacing.smMd)
+            .padding(.top, AppTheme.Spacing.sm)
+            .padding(.bottom, AppTheme.Spacing.xxs)
+
+        ForEach(spaces.sortedSpaces) { space in
+            SidebarRowButton(
+                label: space.name,
+                systemImage: "tray.full",
+                isSelected: section == .space(space.id),
+                action: { section = .space(space.id) }
+            )
+        }
+        SidebarRowButton(
+            label: "New Space",
+            systemImage: "plus",
+            action: {
+                let space = SpaceRegistry.shared.create(name: "Untitled Space")
+                section = .space(space.id)
+            }
+        )
     }
 }
 

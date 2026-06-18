@@ -153,6 +153,29 @@ private struct LibraryVideoCard: View {
         .task(id: url.path) {
             poster = await Self.makePoster(url: url)
         }
+        // Drag a clip into a Space as a whole-file moment (M3). The address resolves lazily on
+        // drag start; "" when the file is outside every root (the drop handler ignores it).
+        .draggable(RootsRegistry.shared.address(for: url)?.dragString ?? "") {
+            dragPreview
+        }
+    }
+
+    private var dragPreview: some View {
+        ZStack {
+            Rectangle().fill(Color.black)
+            if let poster {
+                Image(nsImage: poster).resizable().aspectRatio(contentMode: .fit)
+            } else {
+                Image(systemName: "film")
+                    .foregroundStyle(AppTheme.Text.tertiaryColor)
+            }
+        }
+        .frame(width: 80, height: 45)
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.sm))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.Radius.sm)
+                .strokeBorder(AppTheme.Accent.primary, lineWidth: AppTheme.BorderWidth.medium)
+        )
     }
 
     private static func makePoster(url: URL) async -> NSImage? {

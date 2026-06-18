@@ -22,7 +22,10 @@ final class ClassificationService {
 
     /// Full label record (scenes + file). M4 consumes the per-scene tokens.
     func assetLabels(forURL url: URL, key: String) async -> AssetLabels? {
-        guard let embedder = VisualModelLoader.shared.embedder, VisualModelLoader.shared.isReady else { return nil }
+        guard let embedder = VisualModelLoader.shared.embedder, VisualModelLoader.shared.isReady else {
+            Log.search.notice("classify skip: model not ready (state=\(String(describing: VisualModelLoader.shared.state)))")
+            return nil
+        }
         let vocab = Vocabulary.current()
         let fingerprint = vocab.fingerprint(model: embedder.spec.model, modelVersion: embedder.spec.version)
 
@@ -38,16 +41,23 @@ final class ClassificationService {
         inFlight.insert(key)
         defer { inFlight.remove(key) }
 
-        guard let vectors = await ensureLabelVectors(vocab: vocab, embedder: embedder, fingerprint: fingerprint) else { return nil }
+        guard let vectors = await ensureLabelVectors(vocab: vocab, embedder: embedder, fingerprint: fingerprint) else {
+            Log.search.warning("classify abort: label vectors failed to build")
+            return nil
+        }
 
         let result = await Task.detached(priority: .utility) { () -> AssetLabels? in
             guard let index = try? EmbeddingStore.load(key: key) else { return nil }
             return SceneClassifier.classify(index: index, vocab: vocab, vectors: vectors, fingerprint: fingerprint)
         }.value
-        guard let result else { return nil }
+        guard let result else {
+            Log.search.warning("classify abort: no embedding index for key=\(key.prefix(8))")
+            return nil
+        }
 
         LabelStore.save(result, key: key)
         memory[key] = result
+        Log.search.notice("classified \(url.lastPathComponent) scenes=\(result.scenes.count) fileLabels=\(result.file.count) top=[\(result.file.prefix(4).map(\.token).joined(separator: ", "))]")
         return result
     }
 

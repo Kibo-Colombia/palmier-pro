@@ -90,7 +90,8 @@ extension Vocabulary {
             LabelDef(token: "shot:wide",      prompts: ["a wide establishing shot", "a wide angle view"]),
             LabelDef(token: "shot:closeup",   prompts: ["a close-up shot", "a tight closeup"]),
             LabelDef(token: "shot:aerial",    prompts: ["an aerial drone shot from above", "a bird's eye view"]),
-            LabelDef(token: "shot:pov",       prompts: ["a first-person point of view shot"]),
+            // shot:pov dropped from the seed — "first-person view" matched casual footage almost
+            // universally, so it added noise rather than signal. Re-add with a tuned prompt later.
             // mood
             LabelDef(token: "mood:calm",      prompts: ["a calm, peaceful, serene scene"]),
             LabelDef(token: "mood:energetic", prompts: ["an energetic, dynamic, fast-paced scene"]),

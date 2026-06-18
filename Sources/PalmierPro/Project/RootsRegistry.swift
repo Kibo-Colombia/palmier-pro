@@ -68,6 +68,36 @@ final class RootsRegistry {
         self.files = found
     }
 
+    // MARK: - Portable addressing (M3)
+
+    /// Resolve a portable moment address to a concrete file URL via its root's bookmark.
+    /// Claims security-scoped access (a no-op while unsandboxed) so the file is readable.
+    func fileURL(for address: MomentAddress) -> URL? {
+        guard let root = roots.first(where: { $0.label == address.rootLabel }),
+              let resolved = Bookmarks.resolve(root.bookmark) else { return nil }
+        _ = resolved.url.startAccessingSecurityScopedResource()
+        return resolved.url.appendingPathComponent(address.relativePath)
+    }
+
+    /// Build a portable address for a Library file URL, choosing the root that contains it.
+    /// Returns nil for files outside every registered root.
+    func address(for fileURL: URL, shotStart: Double? = nil, shotEnd: Double? = nil) -> MomentAddress? {
+        let target = fileURL.standardizedFileURL.path
+        for root in roots {
+            guard let resolved = Bookmarks.resolve(root.bookmark) else { continue }
+            let base = resolved.url.standardizedFileURL.path
+            let prefix = base.hasSuffix("/") ? base : base + "/"
+            guard target.hasPrefix(prefix) else { continue }
+            return MomentAddress(
+                rootLabel: root.label,
+                relativePath: String(target.dropFirst(prefix.count)),
+                shotStart: shotStart,
+                shotEnd: shotEnd
+            )
+        }
+        return nil
+    }
+
     // MARK: - Persistence
 
     private func load() {

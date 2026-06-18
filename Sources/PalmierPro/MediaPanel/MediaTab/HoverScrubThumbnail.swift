@@ -11,6 +11,10 @@ struct HoverScrubThumbnail: View {
     let url: URL
     /// Shown before any keyframes load (and as the fallback for un-indexed files).
     let poster: NSImage?
+    /// Reports the source-second range of the moment currently under the cursor (M3), so a host
+    /// (the Library card) can drag *that* moment, not the whole file. `nil` when no shot is
+    /// resolvable (un-indexed / single-shot) — the host then falls back to a whole-file drag.
+    var onActiveMomentChange: ((ClosedRange<Double>?) -> Void)? = nil
 
     @State private var frames: [KeyframeThumbnailCache.Keyframe] = []
     @State private var activeIndex = 0
@@ -54,12 +58,21 @@ struct HoverScrubThumbnail: View {
             guard loadRequested, frames.isEmpty, let key = EmbeddingStore.key(for: url) else { return }
             if let result = await KeyframeThumbnailCache.shared.keyframes(forURL: url, key: key), !result.isEmpty {
                 frames = result
+                onActiveMomentChange?(activeMomentRange)
             }
         }
+        .onChange(of: activeIndex) { _, _ in onActiveMomentChange?(activeMomentRange) }
     }
 
     private var currentImage: CGImage? {
         frames.indices.contains(activeIndex) ? frames[activeIndex].image : nil
+    }
+
+    /// Source-second range of the shot under the cursor, or nil if none is resolvable.
+    private var activeMomentRange: ClosedRange<Double>? {
+        guard frames.indices.contains(activeIndex) else { return nil }
+        let frame = frames[activeIndex]
+        return frame.shotEnd > frame.shotStart ? frame.shotStart...frame.shotEnd : nil
     }
 
     @ViewBuilder

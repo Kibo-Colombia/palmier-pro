@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import SwiftUI
 
@@ -88,6 +89,17 @@ struct SpaceDetailView: View {
             .fixedSize()
 
             Menu {
+                Button { materialize(.symlink) } label: {
+                    Label("Show in Finder (Symlinks)", systemImage: "link")
+                }
+                .disabled(space.items.isEmpty)
+                Button { materialize(.copy) } label: {
+                    Label("Export Copies…", systemImage: "doc.on.doc")
+                }
+                .disabled(space.items.isEmpty)
+
+                Divider()
+
                 Button(role: .destructive) {
                     registry.remove(spaceID)
                     onDeleted()
@@ -204,6 +216,46 @@ struct SpaceDetailView: View {
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         MomentDrop.handle(providers, into: spaceID)
+    }
+
+    // MARK: - Materialize (symlink / copy)
+
+    private func materialize(_ mode: SpaceMaterializer.Mode) {
+        guard let space else { return }
+        chooseDestination(for: space, mode: mode) { destination in
+            Task { @MainActor in
+                do {
+                    let result = try await SpaceMaterializer.materialize(space, mode: mode, into: destination)
+                    NSWorkspace.shared.activateFileViewerSelecting([result.directory])
+                } catch {
+                    NSAlert(error: error).runModal()
+                }
+            }
+        }
+    }
+
+    /// Reuse the Space's saved destination folder if it still resolves; otherwise prompt once and
+    /// remember it (security-scoped bookmark), recording the chosen materialization mode.
+    private func chooseDestination(for space: Space, mode: SpaceMaterializer.Mode, _ completion: @escaping (URL) -> Void) {
+        let materialization: Materialization = mode == .symlink ? .symlink : .copy
+        if let data = space.destinationBookmark, let resolved = Bookmarks.resolve(data) {
+            _ = resolved.url.startAccessingSecurityScopedResource()
+            registry.setMaterialization(materialization, for: spaceID)
+            completion(resolved.url)
+            return
+        }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        panel.message = "Where should Koma place this Space's files?"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            let bookmark = Bookmarks.create(for: url)
+            registry.setMaterialization(materialization, for: spaceID, destinationBookmark: bookmark)
+            completion(url)
+        }
     }
 }
 

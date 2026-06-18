@@ -6,13 +6,18 @@ import Foundation
 ///
 /// Lazy per-asset (mirrors `KeyframeThumbnailCache`): classifying an asset only loads its
 /// embeddings and runs one SGEMM — no model inference per asset.
+@Observable
 @MainActor
 final class ClassificationService {
     static let shared = ClassificationService()
 
-    private var labelVectors: LabelVectors?
-    private var memory: [String: AssetLabels] = [:]
-    private var inFlight: Set<String> = []
+    /// Per-file top label tokens keyed by file path — the observable lookup the library grid
+    /// filters on. Populated as assets get classified (lazily per card and via `classifyAll`).
+    private(set) var tokensByPath: [String: Set<String>] = [:]
+
+    @ObservationIgnored private var labelVectors: LabelVectors?
+    @ObservationIgnored private var memory: [String: AssetLabels] = [:]
+    @ObservationIgnored private var inFlight: Set<String> = []
 
     /// File-level labels for a card. Returns nil while the model isn't ready or a classify is
     /// already running, so the caller simply shows no chips yet.
@@ -29,11 +34,15 @@ final class ClassificationService {
         let vocab = Vocabulary.current()
         let fingerprint = vocab.fingerprint(model: embedder.spec.model, modelVersion: embedder.spec.version)
 
-        if let cached = memory[key], cached.fingerprint == fingerprint { return cached }
+        if let cached = memory[key], cached.fingerprint == fingerprint {
+            record(cached, path: url.path)
+            return cached
+        }
 
         // Valid sidecar on disk → adopt it.
         if let disk = LabelStore.load(key: key), disk.fingerprint == fingerprint {
             memory[key] = disk
+            record(disk, path: url.path)
             return disk
         }
 
@@ -57,8 +66,23 @@ final class ClassificationService {
 
         LabelStore.save(result, key: key)
         memory[key] = result
+        record(result, path: url.path)
         Log.search.notice("classified \(url.lastPathComponent) scenes=\(result.scenes.count) fileLabels=\(result.file.count) top=[\(result.file.prefix(4).map(\.token).joined(separator: ", "))]")
         return result
+    }
+
+    /// Classify every video/image asset that isn't yet labelled, so the library filter (and
+    /// later M4 summaries) have complete data — not just the cards that happened to be scrolled
+    /// into view. Cheap: one SGEMM per asset over its existing embeddings.
+    func classifyAll(urls: [URL]) async {
+        for url in urls {
+            guard let key = EmbeddingStore.key(for: url) else { continue }
+            _ = await assetLabels(forURL: url, key: key)
+        }
+    }
+
+    private func record(_ labels: AssetLabels, path: String) {
+        tokensByPath[path] = Set(labels.file.map(\.token))
     }
 
     private func ensureLabelVectors(vocab: Vocabulary, embedder: VisualEmbedder, fingerprint: String) async -> LabelVectors? {

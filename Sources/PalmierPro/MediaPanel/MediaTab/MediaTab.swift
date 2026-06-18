@@ -8,6 +8,8 @@ struct MediaTab: View {
     @State var sortMode: SortMode = .dateAdded
     @State var filterTypes: Set<ClipType> = []
     @State var filterAI = false
+    /// Classification tokens the library is scoped to (M2). Empty = no label filter.
+    @State var filterLabels: Set<String> = []
     @State var searchQuery: String = ""
     @State var thumbnailSize: Double = 80
     @State var viewMode: ViewMode = .folder
@@ -152,6 +154,18 @@ struct MediaTab: View {
         }
         .onChange(of: currentFolderId, initial: true) { _, folderId in
             editor.mediaPanelCurrentFolderId = folderId
+        }
+        .task(id: editor.mediaAssets.map(\.id)) {
+            // Classify the whole library (not just visible cards) so the label filter is complete.
+            for _ in 0..<40 where !VisualModelLoader.shared.isReady {
+                try? await Task.sleep(for: .milliseconds(300))
+                if Task.isCancelled { return }
+            }
+            guard VisualModelLoader.shared.isReady else { return }
+            let urls = editor.mediaAssets
+                .filter { $0.type == .video || $0.type == .image }
+                .map(\.url)
+            await ClassificationService.shared.classifyAll(urls: urls)
         }
     }
 
@@ -398,6 +412,17 @@ struct MediaTab: View {
             Button { filterAI.toggle() } label: {
                 Label("AI Generated", systemImage: filterAI ? "checkmark" : "")
             }
+            let labels = availableLabels
+            if !labels.isEmpty {
+                Divider()
+                Section("Labels") {
+                    ForEach(labels, id: \.self) { token in
+                        Button { toggleLabel(token) } label: {
+                            Label(token, systemImage: filterLabels.contains(token) ? "checkmark" : "")
+                        }
+                    }
+                }
+            }
             Divider()
             Button("Clear Filters", action: clearFilters)
         }
@@ -450,7 +475,7 @@ struct MediaTab: View {
     }
 
     private var hasActiveFilters: Bool {
-        !filterTypes.isEmpty || filterAI
+        !filterTypes.isEmpty || filterAI || !filterLabels.isEmpty
     }
 
     private func toggleFilter(_ type: ClipType) {
@@ -461,9 +486,29 @@ struct MediaTab: View {
         }
     }
 
+    private func toggleLabel(_ token: String) {
+        if filterLabels.contains(token) {
+            filterLabels.remove(token)
+        } else {
+            filterLabels.insert(token)
+        }
+    }
+
+    /// Tokens present across the current library's classified assets (for the filter menu).
+    var availableLabels: [String] {
+        var tokens = Set<String>()
+        for asset in editor.mediaAssets where asset.type == .video || asset.type == .image {
+            if let assetTokens = ClassificationService.shared.tokensByPath[asset.url.path] {
+                tokens.formUnion(assetTokens)
+            }
+        }
+        return tokens.sorted()
+    }
+
     private func clearFilters() {
         filterTypes.removeAll()
         filterAI = false
+        filterLabels.removeAll()
     }
 
     var assetsInCurrentFolder: [MediaAsset] {
@@ -482,7 +527,9 @@ struct MediaTab: View {
         let aiOk = !filterAI || asset.isGenerated
         let q = searchQuery.trimmingCharacters(in: .whitespaces)
         let nameOk = q.isEmpty || asset.name.localizedCaseInsensitiveContains(q)
-        return typeOk && aiOk && nameOk
+        let labelOk = filterLabels.isEmpty
+            || filterLabels.isSubset(of: ClassificationService.shared.tokensByPath[asset.url.path] ?? [])
+        return typeOk && aiOk && nameOk && labelOk
     }
 
     func sortAndFilter(_ assets: [MediaAsset]) -> [MediaAsset] {

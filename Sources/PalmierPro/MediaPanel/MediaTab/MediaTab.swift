@@ -428,10 +428,16 @@ struct MediaTab: View {
             let labels = availableLabels
             if !labels.isEmpty {
                 Divider()
-                Section("Labels") {
-                    ForEach(labels, id: \.self) { token in
-                        Button { toggleLabel(token) } label: {
-                            Label(token, systemImage: filterLabels.contains(token) ? "checkmark" : "")
+                // One section per facet, so e.g. all act:* tokens sit under "Action".
+                ForEach(Vocabulary.current().facets, id: \.id) { facet in
+                    let facetLabels = labels.filter { $0.hasPrefix("\(facet.id):") }
+                    if !facetLabels.isEmpty {
+                        Section(facetTitle(facet.id)) {
+                            ForEach(facetLabels, id: \.self) { token in
+                                Button { toggleLabel(token) } label: {
+                                    Label(labelValue(token), systemImage: filterLabels.contains(token) ? "checkmark" : "")
+                                }
+                            }
                         }
                     }
                 }
@@ -527,6 +533,11 @@ struct MediaTab: View {
     private func setGroupBy(_ facet: String?) {
         groupByFacet = facet
         if facet != nil, viewMode != .grouped { setViewMode(.grouped) }
+    }
+
+    /// The value after the facet prefix ("act:talking" → "talking"), shown under a facet header.
+    func labelValue(_ token: String) -> String {
+        String(token.drop { $0 != ":" }.dropFirst())
     }
 
     /// Human-readable facet name for the "Group by" menu and section headers.

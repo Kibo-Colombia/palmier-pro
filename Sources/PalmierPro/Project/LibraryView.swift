@@ -129,9 +129,14 @@ struct LibraryView: View {
 }
 
 /// A library card: poster at rest, hover-scrub key moments on hover, label chips behind the (i).
+/// Hover state surfaces a subtle border + scale nudge so the card reads as draggable before
+/// the gesture starts. The drag preview matches the MediaTab house style (accent border + shadow).
 private struct LibraryVideoCard: View {
     let url: URL
     @State private var poster: NSImage?
+    @State private var isHovered = false
+
+    private let cardRadius = AppTheme.Radius.sm
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.xxs) {
@@ -140,7 +145,14 @@ private struct LibraryVideoCard: View {
                 HoverScrubThumbnail(url: url, poster: poster)
             }
             .aspectRatio(16.0 / 9.0, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.sm))
+            .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
+                    .strokeBorder(
+                        AppTheme.Accent.primary.opacity(isHovered ? AppTheme.Opacity.medium : 0),
+                        lineWidth: AppTheme.BorderWidth.medium
+                    )
+            }
             .overlay(alignment: .bottomLeading) {
                 LabelChips(url: url).padding(AppTheme.Spacing.xs)
             }
@@ -150,6 +162,9 @@ private struct LibraryVideoCard: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
+        .scaleEffect(isHovered ? 1.02 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isHovered)
+        .onHover { isHovered = $0 }
         .task(id: url.path) {
             poster = await Self.makePoster(url: url)
         }
@@ -160,6 +175,8 @@ private struct LibraryVideoCard: View {
         }
     }
 
+    /// Ghost shown while the drag is in flight. Thumbnail + accent border + drop shadow —
+    /// matches the MediaTab house style so all drags read consistently.
     private var dragPreview: some View {
         ZStack {
             Rectangle().fill(Color.black)
@@ -167,15 +184,17 @@ private struct LibraryVideoCard: View {
                 Image(nsImage: poster).resizable().aspectRatio(contentMode: .fit)
             } else {
                 Image(systemName: "film")
+                    .font(.system(size: AppTheme.FontSize.md))
                     .foregroundStyle(AppTheme.Text.tertiaryColor)
             }
         }
-        .frame(width: 80, height: 45)
-        .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.sm))
+        .frame(width: 96, height: 54)
+        .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.Radius.sm)
+            RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
                 .strokeBorder(AppTheme.Accent.primary, lineWidth: AppTheme.BorderWidth.medium)
         )
+        .shadow(color: .black.opacity(AppTheme.Opacity.medium), radius: 8, y: 4)
     }
 
     private static func makePoster(url: URL) async -> NSImage? {

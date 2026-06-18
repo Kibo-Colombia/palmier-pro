@@ -242,7 +242,7 @@ private struct HomeSidebar: View {
             SpaceSidebarRow(
                 space: space,
                 isSelected: section == .space(space.id),
-                onSelect: { section = .space(space.id) }
+                section: $section
             )
         }
         SidebarRowButton(
@@ -256,30 +256,90 @@ private struct HomeSidebar: View {
     }
 }
 
-/// A Space row in the sidebar that doubles as a drop target: drag a Library card straight onto it
-/// to add the moment, with a highlight while a drag hovers (M3).
+/// A Space row in the sidebar that doubles as a drop target (M3).
+///
+/// UX polish:
+/// - **Targeted state**: accent fill + crisp border, clearly distinct from plain hover/selected.
+/// - **Spring-load**: hovering with a drag for ~0.7 s auto-navigates to that Space so the user
+///   can drop into its grid and see context without lifting the drag.
+/// - **Moment count badge**: a muted pill shows how many moments are in the Space.
 private struct SpaceSidebarRow: View {
     let space: Space
     let isSelected: Bool
-    let onSelect: () -> Void
+    @Binding var section: HomeSection
 
     @State private var isTargeted = false
+    /// Timer that fires the spring-load navigation when a drag lingers on this row.
+    @State private var springLoadTask: Task<Void, Never>?
+
+    private var itemCount: Int { SpaceRegistry.shared.itemCount(for: space.id) }
 
     var body: some View {
-        SidebarRowButton(
-            label: space.name,
-            systemImage: "tray.full",
-            isSelected: isSelected || isTargeted,
-            action: onSelect
-        )
-        .overlay {
-            if isTargeted {
-                RoundedRectangle(cornerRadius: AppTheme.Radius.sm)
-                    .strokeBorder(AppTheme.Accent.primary, lineWidth: AppTheme.BorderWidth.medium)
+        Button { section = .space(space.id) } label: {
+            HStack(spacing: AppTheme.Spacing.smMd) {
+                Image(systemName: "tray.full")
+                    .font(.system(size: AppTheme.FontSize.smMd))
+                    .frame(width: AppTheme.Spacing.lgXl)
+                    .foregroundStyle(
+                        isTargeted
+                            ? AppTheme.Accent.primary
+                            : AppTheme.Text.primaryColor
+                    )
+                Text(space.name)
+                    .font(.system(size: AppTheme.FontSize.md))
+                    .foregroundStyle(AppTheme.Text.primaryColor)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Spacer(minLength: 0)
+
+                if itemCount > 0 {
+                    Text("\(itemCount)")
+                        .font(.system(size: AppTheme.FontSize.xxs, weight: .medium).monospacedDigit())
+                        .foregroundStyle(AppTheme.Text.tertiaryColor)
+                        .padding(.horizontal, AppTheme.Spacing.xs)
+                        .padding(.vertical, AppTheme.Spacing.xxs)
+                        .background(Color.white.opacity(AppTheme.Opacity.faint), in: .capsule)
+                }
             }
+            .padding(.horizontal, AppTheme.Spacing.smMd)
+            .padding(.vertical, AppTheme.Spacing.sm)
+            // Targeted gets an accent fill; selected/hover use the standard token.
+            .background {
+                RoundedRectangle(cornerRadius: AppTheme.Radius.sm, style: .continuous)
+                    .fill(
+                        isTargeted
+                            ? AppTheme.Accent.primary.opacity(AppTheme.Opacity.hint)
+                            : isSelected
+                                ? Color.white.opacity(AppTheme.Opacity.soft)
+                                : Color.clear
+                    )
+            }
+            .overlay {
+                if isTargeted {
+                    RoundedRectangle(cornerRadius: AppTheme.Radius.sm, style: .continuous)
+                        .strokeBorder(AppTheme.Accent.primary, lineWidth: AppTheme.BorderWidth.medium)
+                }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: AppTheme.Radius.sm, style: .continuous))
+            .animation(.easeOut(duration: AppTheme.Anim.hover), value: isTargeted)
+            .animation(.easeOut(duration: AppTheme.Anim.hover), value: isSelected)
         }
+        .buttonStyle(.plain)
         .onDrop(of: [.text], isTargeted: $isTargeted) { providers in
-            MomentDrop.handle(providers, into: space.id)
+            springLoadTask?.cancel()
+            springLoadTask = nil
+            return MomentDrop.handle(providers, into: space.id)
+        }
+        .onChange(of: isTargeted) { _, targeted in
+            springLoadTask?.cancel()
+            guard targeted else { springLoadTask = nil; return }
+            // Spring-load: auto-open after 0.7 s of hover so the user can drop into the grid.
+            springLoadTask = Task {
+                try? await Task.sleep(for: .milliseconds(700))
+                guard !Task.isCancelled else { return }
+                section = .space(space.id)
+            }
         }
     }
 }

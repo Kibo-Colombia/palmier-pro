@@ -113,6 +113,11 @@ final class SpaceRegistry {
         save()
     }
 
+    /// Number of moments in a Space — used for the sidebar badge.
+    func itemCount(for id: UUID) -> Int {
+        spaces.first { $0.id == id }?.items.count ?? 0
+    }
+
     // MARK: - Persistence
 
     private func load() {

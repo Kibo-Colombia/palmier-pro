@@ -36,12 +36,20 @@ struct SpaceDetailView: View {
         }
         .overlay {
             if isTargeted {
-                RoundedRectangle(cornerRadius: AppTheme.Radius.md)
+                RoundedRectangle(cornerRadius: AppTheme.Radius.md, style: .continuous)
                     .strokeBorder(AppTheme.Accent.primary, lineWidth: AppTheme.BorderWidth.thick)
                     .padding(AppTheme.Spacing.smMd)
+                    .overlay(
+                        // Subtle accent fill behind the border for extra weight
+                        RoundedRectangle(cornerRadius: AppTheme.Radius.md, style: .continuous)
+                            .fill(AppTheme.Accent.primary.opacity(AppTheme.Opacity.subtle))
+                            .padding(AppTheme.Spacing.smMd)
+                    )
                     .allowsHitTesting(false)
+                    .transition(.opacity.animation(.easeOut(duration: AppTheme.Anim.hover)))
             }
         }
+        .animation(.easeOut(duration: AppTheme.Anim.hover), value: isTargeted)
         .onDrop(of: [.text], isTargeted: $isTargeted) { handleDrop($0) }
         .task(id: spaceID) {
             registry.touch(spaceID)
@@ -106,37 +114,81 @@ struct SpaceDetailView: View {
             LazyVGrid(columns: columns, spacing: AppTheme.Spacing.lg) {
                 ForEach(space.items) { address in
                     SpaceMomentCard(address: address) {
-                        registry.removeItem(address, from: spaceID)
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            registry.removeItem(address, from: spaceID)
+                        }
                     }
+                    .transition(.scale(scale: 0.88).combined(with: .opacity))
                 }
             }
             .padding(.horizontal, AppTheme.Spacing.xlXxl)
             .padding(.bottom, AppTheme.Spacing.xlXxl)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: space.items.map(\.id))
         }
         .scrollEdgeEffectStyle(.soft, for: .top)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var emptyState: some View {
+        ZStack {
+            // Dashed drop zone — brightens when a drag is in flight
+            RoundedRectangle(cornerRadius: AppTheme.Radius.lg, style: .continuous)
+                .strokeBorder(
+                    style: StrokeStyle(lineWidth: AppTheme.BorderWidth.medium, dash: [6, 5] as [CGFloat])
+                )
+                .foregroundStyle(
+                    isTargeted
+                        ? AppTheme.Accent.primary.opacity(AppTheme.Opacity.medium)
+                        : Color.white.opacity(AppTheme.Opacity.faint)
+                )
+                .padding(AppTheme.Spacing.xlXxl)
+
+            VStack(spacing: AppTheme.Spacing.smMd) {
+                ZStack {
+                    Circle()
+                        .fill(
+                            isTargeted
+                                ? AppTheme.Accent.primary.opacity(AppTheme.Opacity.hint)
+                                : Color.white.opacity(AppTheme.Opacity.subtle)
+                        )
+                        .frame(width: 52, height: 52)
+                    Image(systemName: isTargeted ? "tray.and.arrow.down.fill" : "tray.and.arrow.down")
+                        .font(.system(size: AppTheme.FontSize.title1, weight: .light))
+                        .foregroundStyle(
+                            isTargeted
+                                ? AppTheme.Accent.primary
+                                : AppTheme.Text.mutedColor
+                        )
+                }
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isTargeted)
+
+                Text("Drag clips from the Library here")
+                    .font(.system(size: AppTheme.FontSize.md, weight: .semibold))
+                    .foregroundStyle(AppTheme.Text.secondaryColor)
+                Text("A Space is a saved view of your footage — nothing is copied or moved.")
+                    .font(.system(size: AppTheme.FontSize.xs))
+                    .foregroundStyle(AppTheme.Text.tertiaryColor)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 300)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.easeOut(duration: AppTheme.Anim.hover), value: isTargeted)
+    }
+
+    private var missingState: some View {
         VStack(spacing: AppTheme.Spacing.smMd) {
-            Image(systemName: "tray.and.arrow.down")
+            Image(systemName: "xmark.circle")
                 .font(.system(size: AppTheme.FontSize.title2, weight: .light))
                 .foregroundStyle(AppTheme.Text.mutedColor)
-            Text("Drag clips from the Library here")
+            Text("Space not found")
                 .font(.system(size: AppTheme.FontSize.md, weight: .semibold))
                 .foregroundStyle(AppTheme.Text.secondaryColor)
-            Text("A Space is a saved view of your footage — nothing is copied or moved.")
+            Text("This Space no longer exists.")
                 .font(.system(size: AppTheme.FontSize.xs))
                 .foregroundStyle(AppTheme.Text.tertiaryColor)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var missingState: some View {
-        Text("This Space no longer exists.")
-            .font(.system(size: AppTheme.FontSize.md))
-            .foregroundStyle(AppTheme.Text.tertiaryColor)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Drop
@@ -148,7 +200,7 @@ struct SpaceDetailView: View {
 
 /// One moment in a Space, resolved through its root's bookmark. Whole-file moments reuse the
 /// Library card atoms (hover-scrub + label chips); a shot-range moment shows its key frame with a
-/// duration badge. A remove control appears on hover.
+/// duration badge. A remove control appears on hover with a scale press feel.
 private struct SpaceMomentCard: View {
     let address: MomentAddress
     let onRemove: () -> Void
@@ -157,6 +209,7 @@ private struct SpaceMomentCard: View {
     @State private var poster: NSImage?
     @State private var isHovered = false
 
+    private let cardRadius = AppTheme.Radius.sm
     private var url: URL? { roots.fileURL(for: address) }
 
     var body: some View {
@@ -174,7 +227,15 @@ private struct SpaceMomentCard: View {
                 }
             }
             .aspectRatio(16.0 / 9.0, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.sm))
+            .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
+            .overlay {
+                // Subtle hover border so the card reads as interactive
+                RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
+                    .strokeBorder(
+                        Color.white.opacity(isHovered ? AppTheme.Opacity.muted : AppTheme.Opacity.hint),
+                        lineWidth: AppTheme.BorderWidth.hairline
+                    )
+            }
             .overlay(alignment: .bottomLeading) {
                 if let url, address.isWholeFile {
                     LabelChips(url: url).padding(AppTheme.Spacing.xs)
@@ -184,7 +245,9 @@ private struct SpaceMomentCard: View {
                 if !address.isWholeFile { rangeBadge.padding(AppTheme.Spacing.xs) }
             }
             .overlay(alignment: .topTrailing) {
-                if isHovered { removeButton.padding(AppTheme.Spacing.xs) }
+                removeButton
+                    .padding(AppTheme.Spacing.xs)
+                    .opacity(isHovered ? 1 : 0)
             }
             Text(address.fileName)
                 .font(.system(size: AppTheme.FontSize.xs))
@@ -192,20 +255,26 @@ private struct SpaceMomentCard: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
+        .scaleEffect(isHovered ? 1.015 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isHovered)
         .onHover { isHovered = $0 }
         .task(id: address.id) {
             if address.isWholeFile, let url { poster = await Self.makePoster(url: url) }
         }
     }
 
+    /// Shown when the source file can't be resolved — styled as a plate, not a bare label.
     private var missingFootage: some View {
         VStack(spacing: AppTheme.Spacing.xs) {
             Image(systemName: "questionmark.folder")
-                .font(.system(size: AppTheme.FontSize.lg))
+                .font(.system(size: AppTheme.FontSize.xl, weight: .light))
+                .foregroundStyle(AppTheme.Text.mutedColor)
             Text("Footage not found")
-                .font(.system(size: AppTheme.FontSize.xxs))
+                .font(.system(size: AppTheme.FontSize.xxs, weight: .medium))
+                .foregroundStyle(AppTheme.Text.mutedColor)
         }
-        .foregroundStyle(AppTheme.Text.mutedColor)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(AppTheme.Background.raisedColor)
     }
 
     private var removeButton: some View {
@@ -214,10 +283,18 @@ private struct SpaceMomentCard: View {
                 .font(.system(size: AppTheme.FontSize.xxs, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: AppTheme.IconSize.smMd, height: AppTheme.IconSize.smMd)
-                .background(.black.opacity(AppTheme.Opacity.strong), in: .circle)
+                .background(
+                    Circle().fill(.black.opacity(AppTheme.Opacity.prominent))
+                )
+                .overlay(
+                    Circle().strokeBorder(Color.white.opacity(AppTheme.Opacity.faint), lineWidth: AppTheme.BorderWidth.hairline)
+                )
         }
         .buttonStyle(.plain)
         .help("Remove from this Space")
+        // Tiny spring scale on the button itself for press feel
+        .scaleEffect(isHovered ? 1.0 : 0.85)
+        .animation(.spring(response: 0.2, dampingFraction: 0.65), value: isHovered)
     }
 
     private var rangeBadge: some View {
@@ -227,7 +304,10 @@ private struct SpaceMomentCard: View {
             .foregroundStyle(.white)
             .padding(.horizontal, AppTheme.Spacing.xs)
             .padding(.vertical, AppTheme.Spacing.xxs)
-            .background(.black.opacity(AppTheme.Opacity.strong), in: .capsule)
+            .background(.black.opacity(AppTheme.Opacity.prominent), in: .capsule)
+            .overlay(
+                Capsule().strokeBorder(Color.white.opacity(AppTheme.Opacity.faint), lineWidth: AppTheme.BorderWidth.hairline)
+            )
     }
 
     private static func durationLabel(start: Double, end: Double) -> String {

@@ -275,7 +275,10 @@ final class HomeWindowController: NSWindowController {
         window.isOpaque = false
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = true
+        // Move the window from the (transparent) title-bar strip, not the whole background —
+        // background-move preempts the Library/Spaces card drag gestures (M3). Traffic-light
+        // region still drags the window.
+        window.isMovableByWindowBackground = false
         window.styleMask.insert(.fullSizeContentView)
         window.collectionBehavior = [.fullScreenNone]
         window.center()

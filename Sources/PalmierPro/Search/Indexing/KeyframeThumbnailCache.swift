@@ -16,7 +16,6 @@ final class KeyframeThumbnailCache {
 
     struct Keyframe: Sendable {
         let shotStart: Double
-        let shotEnd: Double
         let image: CGImage
     }
 
@@ -83,18 +82,18 @@ final class KeyframeThumbnailCache {
         generator.requestedTimeToleranceAfter = tolerance
 
         let times = shots.map { CMTime(seconds: $0.repTime, preferredTimescale: 600) }
-        var shotByTimeValue: [Int64: (start: Double, end: Double)] = [:]
-        for (i, t) in times.enumerated() { shotByTimeValue[t.value] = (shots[i].shotStart, shots[i].shotEnd) }
+        var shotStartByTimeValue: [Int64: Double] = [:]
+        for (i, t) in times.enumerated() { shotStartByTimeValue[t.value] = shots[i].shotStart }
 
-        var collected: [(shotStart: Double, shotEnd: Double, image: CGImage)] = []
+        var collected: [(shotStart: Double, image: CGImage)] = []
         for await result in generator.images(for: times) {
             if case .success(requestedTime: let requested, image: let image, actualTime: _) = result,
-               let shot = shotByTimeValue[requested.value] {
-                collected.append((shot.start, shot.end, image))
+               let shotStart = shotStartByTimeValue[requested.value] {
+                collected.append((shotStart, image))
             }
         }
         collected.sort { $0.shotStart < $1.shotStart }
-        return collected.map { Keyframe(shotStart: $0.shotStart, shotEnd: $0.shotEnd, image: $0.image) }
+        return collected.map { Keyframe(shotStart: $0.shotStart, image: $0.image) }
     }
 
     // MARK: - Disk sprite cache (one JPEG grid + JSON sidecar; sidecar written last)
@@ -104,9 +103,6 @@ final class KeyframeThumbnailCache {
         let tileHeight: Int
         let columns: Int
         let shotStarts: [Double]
-        /// Added with per-moment drag (M3). Optional so pre-existing sidecars still decode —
-        /// when absent, `loadSprite` derives ends from the next shot's start.
-        let shotEnds: [Double]?
     }
 
     private nonisolated static func loadSprite(key: String) -> [Keyframe]? {
@@ -121,18 +117,15 @@ final class KeyframeThumbnailCache {
         let rows = (meta.shotStarts.count + meta.columns - 1) / meta.columns
         guard sprite.width >= meta.tileWidth * min(meta.columns, meta.shotStarts.count),
               sprite.height >= meta.tileHeight * rows else { return nil }
-        let starts = meta.shotStarts
-        let ends: [Double] = (meta.shotEnds?.count == starts.count ? meta.shotEnds : nil)
-            ?? starts.indices.map { i in i + 1 < starts.count ? starts[i + 1] : starts[i] }
         var out: [Keyframe] = []
-        out.reserveCapacity(starts.count)
-        for (i, shotStart) in starts.enumerated() {
+        out.reserveCapacity(meta.shotStarts.count)
+        for (i, shotStart) in meta.shotStarts.enumerated() {
             let col = i % meta.columns
             let row = i / meta.columns
             let rect = CGRect(x: col * meta.tileWidth, y: row * meta.tileHeight,
                               width: meta.tileWidth, height: meta.tileHeight)
             guard let tile = sprite.cropping(to: rect) else { return nil }
-            out.append(Keyframe(shotStart: shotStart, shotEnd: ends[i], image: tile))
+            out.append(Keyframe(shotStart: shotStart, image: tile))
         }
         return out
     }
@@ -162,8 +155,7 @@ final class KeyframeThumbnailCache {
         CGImageDestinationAddImage(dest, sprite, [kCGImageDestinationLossyCompressionQuality: 0.75] as CFDictionary)
         guard CGImageDestinationFinalize(dest) else { return }
 
-        let meta = SpriteMeta(tileWidth: tileW, tileHeight: tileH, columns: columns,
-                              shotStarts: frames.map(\.shotStart), shotEnds: frames.map(\.shotEnd))
+        let meta = SpriteMeta(tileWidth: tileW, tileHeight: tileH, columns: columns, shotStarts: frames.map(\.shotStart))
         if let data = try? JSONEncoder().encode(meta) {
             try? data.write(to: metaURL)
         }

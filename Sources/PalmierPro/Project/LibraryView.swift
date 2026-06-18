@@ -135,8 +135,6 @@ private struct LibraryVideoCard: View {
     let url: URL
     @State private var poster: NSImage?
     @State private var isHovered = false
-    /// Source-second range of the key-moment under the scrub cursor — what a drag carries (M3).
-    @State private var activeMoment: ClosedRange<Double>?
 
     private let cardRadius = AppTheme.Radius.sm
 
@@ -144,7 +142,7 @@ private struct LibraryVideoCard: View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.xxs) {
             ZStack {
                 Rectangle().fill(Color.black)
-                HoverScrubThumbnail(url: url, poster: poster, onActiveMomentChange: { activeMoment = $0 })
+                HoverScrubThumbnail(url: url, poster: poster)
             }
             .aspectRatio(16.0 / 9.0, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
@@ -170,20 +168,11 @@ private struct LibraryVideoCard: View {
         .task(id: url.path) {
             poster = await Self.makePoster(url: url)
         }
-        // Drag the key-moment under the scrub cursor into a Space (M3) — carries that shot's
-        // range, falling back to a whole-file moment for un-indexed/single-shot clips. Resolves
-        // lazily on drag start; "" when the file is outside every root (the drop handler ignores it).
-        .draggable(momentDragString) {
+        // Drag a clip into a Space as a whole-file moment (M3). The address resolves lazily on
+        // drag start; "" when the file is outside every root (the drop handler ignores it).
+        .draggable(RootsRegistry.shared.address(for: url)?.dragString ?? "") {
             dragPreview
         }
-    }
-
-    private var momentDragString: String {
-        RootsRegistry.shared.address(
-            for: url,
-            shotStart: activeMoment?.lowerBound,
-            shotEnd: activeMoment?.upperBound
-        )?.dragString ?? ""
     }
 
     /// Ghost shown while the drag is in flight. Thumbnail + accent border + drop shadow —

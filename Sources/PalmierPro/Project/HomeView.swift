@@ -239,11 +239,10 @@ private struct HomeSidebar: View {
             .padding(.bottom, AppTheme.Spacing.xxs)
 
         ForEach(spaces.sortedSpaces) { space in
-            SidebarRowButton(
-                label: space.name,
-                systemImage: "tray.full",
+            SpaceSidebarRow(
+                space: space,
                 isSelected: section == .space(space.id),
-                action: { section = .space(space.id) }
+                onSelect: { section = .space(space.id) }
             )
         }
         SidebarRowButton(
@@ -254,6 +253,34 @@ private struct HomeSidebar: View {
                 section = .space(space.id)
             }
         )
+    }
+}
+
+/// A Space row in the sidebar that doubles as a drop target: drag a Library card straight onto it
+/// to add the moment, with a highlight while a drag hovers (M3).
+private struct SpaceSidebarRow: View {
+    let space: Space
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    @State private var isTargeted = false
+
+    var body: some View {
+        SidebarRowButton(
+            label: space.name,
+            systemImage: "tray.full",
+            isSelected: isSelected || isTargeted,
+            action: onSelect
+        )
+        .overlay {
+            if isTargeted {
+                RoundedRectangle(cornerRadius: AppTheme.Radius.sm)
+                    .strokeBorder(AppTheme.Accent.primary, lineWidth: AppTheme.BorderWidth.medium)
+            }
+        }
+        .onDrop(of: [.text], isTargeted: $isTargeted) { providers in
+            MomentDrop.handle(providers, into: space.id)
+        }
     }
 }
 

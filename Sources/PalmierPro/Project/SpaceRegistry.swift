@@ -126,3 +126,25 @@ final class SpaceRegistry {
         try? data.write(to: fileURL, options: .atomic)
     }
 }
+
+/// Shared handling for `palmier-moment://` drops (one address per line), so the sidebar Space
+/// rows and a Space's detail view add moments identically. Returns true if any provider carried
+/// text we'll try to parse (so the drop site reports it accepted the drag).
+@MainActor
+enum MomentDrop {
+    static func handle(_ providers: [NSItemProvider], into spaceID: UUID) -> Bool {
+        var handled = false
+        for provider in providers where provider.canLoadObject(ofClass: NSString.self) {
+            handled = true
+            _ = provider.loadObject(ofClass: NSString.self) { obj, _ in
+                guard let text = obj as? String else { return }
+                let addresses = text
+                    .split(separator: "\n", omittingEmptySubsequences: true)
+                    .compactMap { MomentAddress(dragString: String($0)) }
+                guard !addresses.isEmpty else { return }
+                Task { @MainActor in SpaceRegistry.shared.add(addresses, to: spaceID) }
+            }
+        }
+        return handled
+    }
+}

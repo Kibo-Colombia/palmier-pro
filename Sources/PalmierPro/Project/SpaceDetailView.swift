@@ -142,19 +142,7 @@ struct SpaceDetailView: View {
     // MARK: - Drop
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-        var handled = false
-        for provider in providers where provider.canLoadObject(ofClass: NSString.self) {
-            handled = true
-            _ = provider.loadObject(ofClass: NSString.self) { obj, _ in
-                guard let text = obj as? String else { return }
-                let addresses = text
-                    .split(separator: "\n", omittingEmptySubsequences: true)
-                    .compactMap { MomentAddress(dragString: String($0)) }
-                guard !addresses.isEmpty else { return }
-                Task { @MainActor in registry.add(addresses, to: spaceID) }
-            }
-        }
-        return handled
+        MomentDrop.handle(providers, into: spaceID)
     }
 }
 

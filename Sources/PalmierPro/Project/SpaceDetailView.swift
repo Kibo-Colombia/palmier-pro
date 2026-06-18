@@ -61,7 +61,8 @@ struct SpaceDetailView: View {
     // MARK: - Header
 
     private func header(_ space: Space) -> some View {
-        HStack(spacing: AppTheme.Spacing.md) {
+        let linkedProject = registry.linkedProjectURL(for: spaceID)
+        return HStack(spacing: AppTheme.Spacing.md) {
             TextField("Space name", text: $editingName)
                 .textFieldStyle(.plain)
                 .font(.system(size: AppTheme.FontSize.title2, weight: .light))
@@ -79,16 +80,33 @@ struct SpaceDetailView: View {
 
             Spacer()
 
-            Button {
-                AppState.shared.createProject(from: space)
-            } label: {
-                Label("Open as Project", systemImage: "film.stack")
+            if let project = linkedProject {
+                Button {
+                    AppState.shared.openProject(at: project)
+                } label: {
+                    Label("Open Project", systemImage: "film.stack")
+                }
+                .help("Reopen the project spun off from this Space")
+                .fixedSize()
+            } else {
+                Button {
+                    AppState.shared.createProject(from: space)
+                } label: {
+                    Label("Open as Project", systemImage: "film.stack")
+                }
+                .disabled(space.items.isEmpty)
+                .help("Create an editor project pre-loaded with this Space's moments")
+                .fixedSize()
             }
-            .disabled(space.items.isEmpty)
-            .help("Create an editor project pre-loaded with this Space's moments")
-            .fixedSize()
 
             Menu {
+                if linkedProject != nil {
+                    Button { AppState.shared.createProject(from: space) } label: {
+                        Label("New Project from Space…", systemImage: "film.stack.fill")
+                    }
+                    .disabled(space.items.isEmpty)
+                    Divider()
+                }
                 Button { materialize(.symlink) } label: {
                     Label("Show in Finder (Symlinks)", systemImage: "link")
                 }

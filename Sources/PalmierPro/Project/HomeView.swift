@@ -238,7 +238,9 @@ private struct HomeSidebar: View {
             .padding(.top, AppTheme.Spacing.sm)
             .padding(.bottom, AppTheme.Spacing.xxs)
 
-        ForEach(spaces.sortedSpaces) { space in
+        // Stable creation order — never re-sort on open/drop, or a row would slide out from
+        // under the cursor mid-drag (spring-load opens the hovered Space, bumping last-opened).
+        ForEach(spaces.spaces) { space in
             SpaceSidebarRow(
                 space: space,
                 isSelected: section == .space(space.id),

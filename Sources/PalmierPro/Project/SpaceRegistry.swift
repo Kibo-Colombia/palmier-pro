@@ -20,6 +20,9 @@ struct Space: Codable, Identifiable, Sendable {
     var labelFilter: [String]?
     /// Bookmarked output folder for `symlink`/`copy` materialization.
     var destinationBookmark: Data?
+    /// Bookmark to the editor Project this Space last spun off, so "Open as Project" reopens it
+    /// instead of always creating a new one. Survives the project file being moved.
+    var projectBookmark: Data?
     var createdDate: Date
     var lastOpenedDate: Date
 
@@ -30,6 +33,7 @@ struct Space: Codable, Identifiable, Sendable {
         materialization: Materialization = .pointer,
         labelFilter: [String]? = nil,
         destinationBookmark: Data? = nil,
+        projectBookmark: Data? = nil,
         createdDate: Date = Date(),
         lastOpenedDate: Date = Date()
     ) {
@@ -39,6 +43,7 @@ struct Space: Codable, Identifiable, Sendable {
         self.materialization = materialization
         self.labelFilter = labelFilter
         self.destinationBookmark = destinationBookmark
+        self.projectBookmark = projectBookmark
         self.createdDate = createdDate
         self.lastOpenedDate = lastOpenedDate
     }
@@ -111,6 +116,22 @@ final class SpaceRegistry {
         guard let i = spaces.firstIndex(where: { $0.id == id }) else { return }
         spaces[i].lastOpenedDate = Date()
         save()
+    }
+
+    /// Remember the editor Project a Space spun off, so it can be reopened later.
+    func setProject(_ url: URL, for id: UUID) {
+        guard let i = spaces.firstIndex(where: { $0.id == id }) else { return }
+        spaces[i].projectBookmark = Bookmarks.create(for: url)
+        save()
+    }
+
+    /// The Space's linked Project URL, if it was spun off and the file still exists.
+    func linkedProjectURL(for id: UUID) -> URL? {
+        guard let space = spaces.first(where: { $0.id == id }),
+              let data = space.projectBookmark,
+              let resolved = Bookmarks.resolve(data),
+              FileManager.default.fileExists(atPath: resolved.url.path) else { return nil }
+        return resolved.url
     }
 
     /// Number of moments in a Space — used for the sidebar badge.

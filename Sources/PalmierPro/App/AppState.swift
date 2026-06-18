@@ -155,6 +155,7 @@ final class AppState {
             NSDocumentController.shared.addDocument(doc)
             doc.save(to: url, ofType: VideoProject.typeIdentifier, for: .saveOperation) { _ in
                 ProjectRegistry.shared.register(url)
+                SpaceRegistry.shared.setProject(url, for: space.id)
                 Task { @MainActor in await SpaceProjectSpinoff.load(moments, into: doc.editorViewModel) }
             }
         }

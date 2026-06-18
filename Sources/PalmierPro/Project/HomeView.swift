@@ -1,15 +1,18 @@
 import SwiftUI
 
+enum HomeSection { case projects, library }
+
 struct HomeView: View {
     private let columns = [
         GridItem(.adaptive(minimum: 140, maximum: 170), spacing: AppTheme.Spacing.xl)
     ]
 
     @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
+    @State private var section: HomeSection = .projects
 
     var body: some View {
         HStack(spacing: 0) {
-            HomeSidebar()
+            HomeSidebar(section: $section)
                 .frame(width: 220)
 
             content
@@ -27,7 +30,15 @@ struct HomeView: View {
         }
     }
 
+    @ViewBuilder
     private var content: some View {
+        switch section {
+        case .projects: projectsContent
+        case .library: LibraryView()
+        }
+    }
+
+    private var projectsContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             SampleProjectsStrip()
@@ -151,6 +162,7 @@ private struct WelcomeTitle: View {
 
 private struct HomeSidebar: View {
     @Bindable private var account = AccountService.shared
+    @Binding var section: HomeSection
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -166,6 +178,23 @@ private struct HomeSidebar: View {
                         action: { Task { await account.signInWithGoogle() } }
                     )
                 }
+                SidebarRowButton(
+                    label: "Projects",
+                    systemImage: "square.grid.2x2",
+                    isSelected: section == .projects,
+                    action: { section = .projects }
+                )
+                SidebarRowButton(
+                    label: "Library",
+                    systemImage: "rectangle.stack",
+                    isSelected: section == .library,
+                    action: { section = .library }
+                )
+
+                Divider()
+                    .padding(.horizontal, AppTheme.Spacing.sm)
+                    .padding(.vertical, AppTheme.Spacing.xs)
+
                 SidebarRowButton(
                     label: "New Project",
                     systemImage: "plus",

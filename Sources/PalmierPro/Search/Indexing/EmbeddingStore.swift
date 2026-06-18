@@ -18,6 +18,15 @@ struct EmbeddingStore {
         let shotEnd: Double
     }
 
+    /// One detected shot: its range plus the representative frame time (the shot-start
+    /// frame `FrameSampler` flagged). The addressable "moment" used by hover-scrub and Spaces.
+    struct Shot: Equatable {
+        let shotStart: Double
+        let shotEnd: Double
+        /// Time of the earliest sampled frame in the shot — the key moment to render.
+        let repTime: Double
+    }
+
     struct AssetIndex {
         let header: Header
         let rows: [Row]
@@ -91,6 +100,41 @@ struct EmbeddingStore {
             }
         }
         return AssetIndex(header: header, rows: rows, vectors: vectors)
+    }
+
+    /// Reads only the per-row `(time, shotStart, shotEnd)` triples — striding over and
+    /// skipping the embedding vectors — and collapses them to one entry per distinct shot.
+    /// Cheap enough to call on hover: avoids `load`'s full Float16→Float32 expansion and the
+    /// `count×dim` allocation. Returns nil when no current index exists for the key.
+    static func shots(key: String) -> [Shot]? {
+        guard let data = try? Data(contentsOf: diskURL(key)),
+              data.count > magic.count + 4, data.prefix(magic.count) == magic else { return nil }
+        var offset = magic.count
+        let len = Int(data.subdata(in: offset..<offset + 4).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) })
+        offset += 4
+        guard data.count >= offset + len,
+              let header = try? JSONDecoder().decode(Header.self, from: data.subdata(in: offset..<offset + len))
+        else { return nil }
+        offset += len
+
+        let rowBytes = 3 * 8 + header.dim * 2
+        guard rowBytes > 0, data.count == offset + header.count * rowBytes else { return nil }
+
+        // Rows arrive in time order, grouped by shot, so a new `shotStart` marks a new shot
+        // and the first row of each group carries the earliest (representative) time.
+        var shots: [Shot] = []
+        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            for i in 0..<header.count {
+                let base = offset + i * rowBytes
+                let time = raw.loadUnaligned(fromByteOffset: base, as: Double.self)
+                let shotStart = raw.loadUnaligned(fromByteOffset: base + 8, as: Double.self)
+                let shotEnd = raw.loadUnaligned(fromByteOffset: base + 16, as: Double.self)
+                if shots.last?.shotStart != shotStart {
+                    shots.append(Shot(shotStart: shotStart, shotEnd: shotEnd, repTime: time))
+                }
+            }
+        }
+        return shots
     }
 
     static func save(header: Header, rows: [Row], vectors: [Float], key: String) throws {

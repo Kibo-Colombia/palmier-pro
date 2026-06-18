@@ -140,6 +140,9 @@ struct AssetThumbnailView: View {
                 failedThumbnail(error: error)
             } else if isMissing {
                 missingThumbnail
+            } else if asset.type == .video {
+                // Hover-scrub the file's key moments (shot starts) without opening it.
+                HoverScrubThumbnail(url: asset.url, poster: asset.thumbnail)
             } else if let thumbnail = asset.thumbnail {
                 Image(nsImage: thumbnail)
                     .resizable()

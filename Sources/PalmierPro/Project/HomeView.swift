@@ -245,14 +245,80 @@ private struct HomeSidebar: View {
                 section: $section
             )
         }
-        SidebarRowButton(
-            label: "New Space",
-            systemImage: "plus",
-            action: {
-                let space = SpaceRegistry.shared.create(name: "Untitled Space")
-                section = .space(space.id)
+        NewSpaceDropRow(section: $section)
+    }
+}
+
+/// The "New Space" row in the sidebar.
+///
+/// - **Tap**: creates an empty Space and navigates to it (unchanged prior behaviour).
+/// - **Drop** (`palmier-moment://` text): parses the addresses; if at least one is valid,
+///   creates a new Space containing those moments and navigates to it. A stray / empty drop
+///   is ignored — no phantom Space is created.
+private struct NewSpaceDropRow: View {
+    @Binding var section: HomeSection
+    @State private var isTargeted = false
+
+    var body: some View {
+        Button {
+            let space = SpaceRegistry.shared.create(name: "Untitled Space")
+            section = .space(space.id)
+        } label: {
+            HStack(spacing: AppTheme.Spacing.smMd) {
+                Image(systemName: "plus")
+                    .font(.system(size: AppTheme.FontSize.smMd))
+                    .frame(width: AppTheme.Spacing.lgXl)
+                    .foregroundStyle(
+                        isTargeted
+                            ? AppTheme.Accent.primary
+                            : AppTheme.Text.secondaryColor
+                    )
+                Text("New Space")
+                    .font(.system(size: AppTheme.FontSize.md))
+                    .foregroundStyle(AppTheme.Text.primaryColor)
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
             }
-        )
+            .padding(.horizontal, AppTheme.Spacing.smMd)
+            .padding(.vertical, AppTheme.Spacing.sm)
+            .background {
+                RoundedRectangle(cornerRadius: AppTheme.Radius.sm, style: .continuous)
+                    .fill(
+                        isTargeted
+                            ? AppTheme.Accent.primary.opacity(AppTheme.Opacity.hint)
+                            : Color.clear
+                    )
+            }
+            .overlay {
+                if isTargeted {
+                    RoundedRectangle(cornerRadius: AppTheme.Radius.sm, style: .continuous)
+                        .strokeBorder(AppTheme.Accent.primary, lineWidth: AppTheme.BorderWidth.medium)
+                }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: AppTheme.Radius.sm, style: .continuous))
+            .animation(.easeOut(duration: AppTheme.Anim.hover), value: isTargeted)
+        }
+        .buttonStyle(.plain)
+        .onDrop(of: [.text], isTargeted: $isTargeted) { providers in
+            var handled = false
+            for provider in providers where provider.canLoadObject(ofClass: NSString.self) {
+                handled = true
+                _ = provider.loadObject(ofClass: NSString.self) { obj, _ in
+                    guard let text = obj as? String else { return }
+                    let addresses = text
+                        .split(separator: "\n", omittingEmptySubsequences: true)
+                        .compactMap { MomentAddress(dragString: String($0)) }
+                    guard !addresses.isEmpty else { return }
+                    Task { @MainActor in
+                        let space = SpaceRegistry.shared.create(name: "Untitled Space")
+                        SpaceRegistry.shared.add(addresses, to: space.id)
+                        section = .space(space.id)
+                    }
+                }
+            }
+            return handled
+        }
     }
 }
 

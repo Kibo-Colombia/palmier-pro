@@ -78,6 +78,15 @@ struct SpaceDetailView: View {
 
             Spacer()
 
+            Button {
+                AppState.shared.createProject(from: space)
+            } label: {
+                Label("Open as Project", systemImage: "film.stack")
+            }
+            .disabled(space.items.isEmpty)
+            .help("Create an editor project pre-loaded with this Space's moments")
+            .fixedSize()
+
             Menu {
                 Button(role: .destructive) {
                     registry.remove(spaceID)

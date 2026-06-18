@@ -134,6 +134,32 @@ final class AppState {
         }
     }
 
+    /// Spin off a new editor Project from a Space (M3): same save flow as `createNewProject`, then
+    /// load the Space's moments onto the fresh timeline pre-trimmed. The Space is unchanged — the
+    /// Project is an output of it.
+    func createProject(from space: Space) {
+        let moments = SpaceProjectSpinoff.resolve(space)
+        guard !moments.isEmpty else { NSSound.beep(); return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [Self.projectContentType]
+        panel.nameFieldStringValue = space.name
+        panel.directoryURL = Project.storageDirectory
+        panel.title = "New Project from Space"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            let doc = VideoProject()
+            doc.fileURL = url
+            doc.fileType = VideoProject.typeIdentifier
+            doc.makeWindowControllers()
+            doc.showWindows()
+            NSDocumentController.shared.addDocument(doc)
+            doc.save(to: url, ofType: VideoProject.typeIdentifier, for: .saveOperation) { _ in
+                ProjectRegistry.shared.register(url)
+                Task { @MainActor in await SpaceProjectSpinoff.load(moments, into: doc.editorViewModel) }
+            }
+        }
+    }
+
     func openProject(at url: URL, register: Bool = true, options: ProjectOpenOptions = .init()) {
         do {
             let doc = try VideoProject(contentsOf: url, ofType: VideoProject.typeIdentifier)

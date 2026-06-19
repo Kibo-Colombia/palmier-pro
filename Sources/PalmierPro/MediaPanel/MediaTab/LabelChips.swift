@@ -1,26 +1,27 @@
 import SwiftUI
 
-/// Classification labels for a media card (M2), surfaced unobtrusively: a small (i) badge in
-/// the corner that reveals the file's top labels in a popover on hover. The popover floats in
-/// its own layer, so the chips can extend beyond the thumbnail without being clipped or hidden
-/// behind neighboring cards. The root is always a concrete node so the loading `.task` reliably
-/// attaches; the task waits for the model rather than bailing if a card appears first. Reused by
-/// Spaces in M3.
+/// Classification labels + summary for a media card (M2/M4), surfaced unobtrusively: a small (i)
+/// badge in the corner that opens a popover on click. Click (not hover) so the popover stays put
+/// while you read it and tap "Summarize with AI". The popover floats in its own layer, so its
+/// content can extend beyond the thumbnail. The root is always a concrete node so the loading
+/// `.task` reliably attaches; the task waits for the model rather than bailing if a card appears
+/// first. Reused by Spaces in M3.
 struct LabelChips: View {
     let url: URL
     var maxChips = 5
 
     @State private var labels: [FileLabel] = []
-    @State private var summary: String?
+    @State private var summary: AssetSummary?
     @State private var expanded = false
+    @State private var isSummarizing = false
 
     private var hasContent: Bool { !labels.isEmpty || summary != nil }
 
     var body: some View {
         Group {
             if hasContent {
-                infoBadge
-                    .onHover { hovering in expanded = hovering }
+                Button { expanded.toggle() } label: { infoBadge }
+                    .buttonStyle(.plain)
                     .popover(isPresented: $expanded, arrowEdge: .top) {
                         infoPanel
                     }
@@ -55,16 +56,23 @@ struct LabelChips: View {
             .overlay(Circle().strokeBorder(Color.white.opacity(AppTheme.Opacity.muted), lineWidth: AppTheme.BorderWidth.hairline))
     }
 
-    /// Floating popover content: a one-line summary (M4) over the label chips. Adapts to the
-    /// popover background, so it reads in any appearance.
+    /// Floating popover content: a one-line summary (M4) over the label chips, plus the opt-in
+    /// "Summarize with AI" action. Adapts to the popover background, so it reads in any appearance.
     private var infoPanel: some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
             if let summary {
-                Text(summary)
-                    .font(.system(size: AppTheme.FontSize.sm))
-                    .foregroundStyle(AppTheme.Text.primaryColor)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 260, alignment: .leading)
+                HStack(alignment: .top, spacing: AppTheme.Spacing.xs) {
+                    if summary.fileTier == 1 {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: AppTheme.FontSize.xs))
+                            .foregroundStyle(AppTheme.Accent.primary)
+                    }
+                    Text(summary.fileSummary)
+                        .font(.system(size: AppTheme.FontSize.sm))
+                        .foregroundStyle(AppTheme.Text.primaryColor)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: 260, alignment: .leading)
             }
             if !labels.isEmpty {
                 HStack(spacing: AppTheme.Spacing.xs) {
@@ -78,8 +86,41 @@ struct LabelChips: View {
                     }
                 }
             }
+            if showSummarize {
+                Button(action: summarize) {
+                    HStack(spacing: AppTheme.Spacing.xs) {
+                        if isSummarizing {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "sparkles")
+                        }
+                        Text(isSummarizing ? "Summarizing…" : "Summarize with AI")
+                            .font(.system(size: AppTheme.FontSize.xs, weight: .medium))
+                    }
+                    .foregroundStyle(AppTheme.Accent.primary)
+                }
+                .buttonStyle(.plain)
+                .disabled(isSummarizing)
+            }
         }
         .padding(AppTheme.Spacing.sm)
+        .frame(maxWidth: 280, alignment: .leading)
+    }
+
+    /// Offer the LLM tier when it's available and we don't already have an LLM summary.
+    private var showSummarize: Bool {
+        SummaryService.shared.canUseLLM && (summary?.fileTier ?? 0) < 1
+    }
+
+    private func summarize() {
+        guard let key = EmbeddingStore.key(for: url) else { return }
+        isSummarizing = true
+        Task {
+            if let result = await SummaryService.shared.generateLLMSummary(forURL: url, key: key) {
+                summary = result
+            }
+            isSummarizing = false
+        }
     }
 }
 

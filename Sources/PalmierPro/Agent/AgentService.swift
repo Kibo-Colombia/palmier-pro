@@ -202,13 +202,25 @@ final class AgentService {
     }
 
     weak var editor: EditorViewModel? {
-        didSet { toolExecutor = editor.map { ToolExecutor(editor: $0) } }
+        didSet { toolHost = editor.map { ToolExecutor(editor: $0) } }
     }
-    private var toolExecutor: ToolExecutor?
+    private var toolHost: AgentToolHost?
     private var currentTask: Task<Void, Never>?
 
+    /// Point the agent at a non-editor tool host (e.g. the home Library/Spaces host). Retains it.
+    func useToolHost(_ host: AgentToolHost) { toolHost = host }
+
     func loadSessions(from projectURL: URL?) {
-        sessions = ChatSessionStore.load(from: projectURL)
+        installSessions(ChatSessionStore.load(from: projectURL))
+    }
+
+    /// Home-screen variant: sessions persist in their own namespace (no project document).
+    func loadHomeSessions() {
+        installSessions(HomeChatSessionStore.load())
+    }
+
+    private func installSessions(_ loaded: [ChatSession]) {
+        sessions = loaded
             .filter { !$0.messages.isEmpty }
             .map {
                 var session = $0
@@ -323,9 +335,12 @@ final class AgentService {
             streamError = .upstream("No backend available.")
             return
         }
-        let tools = ToolDefinitions.all.map {
-            AnthropicToolSchema(name: $0.name.rawValue, description: $0.description, inputSchema: $0.inputSchema)
+        guard let host = toolHost else {
+            streamError = .upstream("No tools available.")
+            return
         }
+        let tools = host.toolSchemas
+        let system = host.systemInstructions
 
         loop: while !Task.isCancelled {
             resolveOrphanToolUses()
@@ -335,7 +350,7 @@ final class AgentService {
 
             do {
                 let stream = client.stream(
-                    system: AgentInstructions.serverInstructions,
+                    system: system,
                     tools: tools,
                     messages: apiMsgs
                 )
@@ -394,7 +409,7 @@ final class AgentService {
 
     private func runPendingToolUses(assistantIndex: Int) async {
         guard messages.indices.contains(assistantIndex) else { return }
-        guard let executor = toolExecutor else {
+        guard let host = toolHost else {
             messages.append(AgentMessage(role: .user, blocks: [.text("Tool executor unavailable.")]))
             return
         }
@@ -411,7 +426,7 @@ final class AgentService {
                 resultBlocks.append(.toolResult(toolUseId: use.id, content: [.text("Cancelled")], isError: true))
                 continue
             }
-            let result = await executor.execute(name: use.name, args: Self.parseJSONObject(use.input))
+            let result = await host.execute(name: use.name, args: Self.parseJSONObject(use.input))
             resultBlocks.append(.toolResult(toolUseId: use.id, content: result.content, isError: result.isError))
         }
         if !resultBlocks.isEmpty {

@@ -95,6 +95,18 @@ final class ToolExecutor {
     }
 }
 
+/// The editor's tool host: the full project tool set + the editor system prompt. These are the
+/// exact values `AgentService.runLoop()` used to inline, so the editor chat is unchanged.
+extension ToolExecutor: AgentToolHost {
+    var toolSchemas: [AnthropicToolSchema] {
+        ToolDefinitions.all.map {
+            AnthropicToolSchema(name: $0.name.rawValue, description: $0.description, inputSchema: $0.inputSchema)
+        }
+    }
+
+    var systemInstructions: String { AgentInstructions.serverInstructions }
+}
+
 /// Throws if `entry` carries any keys outside `allowed`. `path` prefixes the error (e.g. "entries[3]").
 func validateUnknownKeys(_ entry: [String: Any], allowed: Set<String>, path: String) throws {
     let unknown = Set(entry.keys).subtracting(allowed)

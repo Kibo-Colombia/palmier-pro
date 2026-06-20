@@ -8,6 +8,7 @@ struct HomeView: View {
     ]
 
     @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
+    @AppStorage("homeChatVisible") private var chatVisible = false
     @State private var section: HomeSection = .projects
 
     var body: some View {
@@ -18,16 +19,44 @@ struct HomeView: View {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.black.opacity(AppTheme.Opacity.medium))
+
+            if chatVisible {
+                Divider()
+                LibraryChatPanel(service: HomeAgent.shared, onClose: { chatVisible = false })
+                    .frame(width: AppTheme.Window.homeChatWidth)
+                    .transition(.move(edge: .trailing))
+            }
         }
-        .frame(minWidth: 760, minHeight: 480)
+        .frame(minWidth: chatVisible ? 760 + AppTheme.Window.homeChatWidth : 760, minHeight: 480)
         .background(.ultraThinMaterial)
         .focusEffectDisabled()
+        .animation(.easeOut(duration: AppTheme.Anim.hover), value: chatVisible)
+        .overlay(alignment: .topTrailing) {
+            if !chatVisible { chatToggle }
+        }
         .task { await VisualModelLoader.shared.prepare() }
         .overlay {
             if !hasSeenWelcome {
                 WelcomeOverlay { withAnimation { hasSeenWelcome = true } }
             }
         }
+    }
+
+    /// Toggles the docked Kibo chat column. Top-trailing overlay so it's present on every home
+    /// section (Projects / Library / Spaces); when the chat is open it sits above its header.
+    private var chatToggle: some View {
+        Button { chatVisible.toggle() } label: {
+            Image(systemName: chatVisible ? "bubble.left.fill" : "bubble.left")
+                .font(.system(size: AppTheme.FontSize.smMd, weight: .medium))
+                .foregroundStyle(chatVisible ? AppTheme.Accent.primary : AppTheme.Text.secondaryColor)
+                .frame(width: AppTheme.IconSize.lg, height: AppTheme.IconSize.lg)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusable(false)
+        .help(chatVisible ? "Hide Kibo" : "Ask Kibo")
+        .padding(.trailing, AppTheme.Spacing.md)
+        .padding(.top, AppTheme.Spacing.sm)
     }
 
     @ViewBuilder

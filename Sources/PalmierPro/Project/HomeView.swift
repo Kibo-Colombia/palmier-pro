@@ -13,7 +13,7 @@ struct HomeView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            HomeSidebar(section: $section)
+            HomeSidebar(section: $section, chatVisible: $chatVisible)
                 .frame(width: 220)
 
             content
@@ -31,32 +31,12 @@ struct HomeView: View {
         .background(.ultraThinMaterial)
         .focusEffectDisabled()
         .animation(.easeOut(duration: AppTheme.Anim.hover), value: chatVisible)
-        .overlay(alignment: .topTrailing) {
-            if !chatVisible { chatToggle }
-        }
         .task { await VisualModelLoader.shared.prepare() }
         .overlay {
             if !hasSeenWelcome {
                 WelcomeOverlay { withAnimation { hasSeenWelcome = true } }
             }
         }
-    }
-
-    /// Toggles the docked Kibo chat column. Top-trailing overlay so it's present on every home
-    /// section (Projects / Library / Spaces); when the chat is open it sits above its header.
-    private var chatToggle: some View {
-        Button { chatVisible.toggle() } label: {
-            Image(systemName: chatVisible ? "bubble.left.fill" : "bubble.left")
-                .font(.system(size: AppTheme.FontSize.smMd, weight: .medium))
-                .foregroundStyle(chatVisible ? AppTheme.Accent.primary : AppTheme.Text.secondaryColor)
-                .frame(width: AppTheme.IconSize.lg, height: AppTheme.IconSize.lg)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .focusable(false)
-        .help(chatVisible ? "Hide Kibo" : "Ask Kibo")
-        .padding(.trailing, AppTheme.Spacing.md)
-        .padding(.top, AppTheme.Spacing.sm)
     }
 
     @ViewBuilder
@@ -194,6 +174,7 @@ private struct HomeSidebar: View {
     @Bindable private var account = AccountService.shared
     @State private var spaces = SpaceRegistry.shared
     @Binding var section: HomeSection
+    @Binding var chatVisible: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -244,11 +225,19 @@ private struct HomeSidebar: View {
 
             Spacer(minLength: 0)
 
-            SidebarRowButton(
-                label: "Settings",
-                systemImage: "gearshape",
-                action: { SettingsWindowController.shared.show() }
-            )
+            VStack(alignment: .leading, spacing: 2) {
+                SidebarRowButton(
+                    label: "Ask Kibo",
+                    systemImage: chatVisible ? "bubble.left.fill" : "bubble.left",
+                    isSelected: chatVisible,
+                    action: { chatVisible.toggle() }
+                )
+                SidebarRowButton(
+                    label: "Settings",
+                    systemImage: "gearshape",
+                    action: { SettingsWindowController.shared.show() }
+                )
+            }
             .padding(.horizontal, 8)
             .padding(.bottom, 10)
         }

@@ -40,6 +40,11 @@ enum MainMenuBuilder {
         let menu = NSMenu(title: "File")
         menu.addItem(withTitle: "New", action: #selector(NSDocumentController.newDocument(_:)), keyEquivalent: "n")
         menu.addItem(withTitle: "Open…", action: #selector(NSDocumentController.openDocument(_:)), keyEquivalent: "o")
+
+        let homeItem = NSMenuItem(title: "Home", action: #selector(AppDelegate.showHomeScreen(_:)), keyEquivalent: "H")
+        homeItem.keyEquivalentModifierMask = [.command, .shift]
+        menu.addItem(homeItem)
+
         menu.addItem(.separator())
         menu.addItem(withTitle: "Save", action: #selector(NSDocument.save(_:)), keyEquivalent: "s")
         menu.addItem(withTitle: "Save As…", action: #selector(NSDocument.saveAs(_:)), keyEquivalent: "S")

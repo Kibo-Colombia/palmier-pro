@@ -36,6 +36,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor
+    @objc func showHomeScreen(_ sender: Any?) {
+        AppState.shared.showHome()
+    }
+
+    @MainActor
     @objc func showKeyboardShortcuts(_ sender: Any?) {
         HelpWindowController.shared.show(tab: .shortcuts)
     }

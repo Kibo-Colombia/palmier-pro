@@ -19,6 +19,7 @@ enum ToolName: String, CaseIterable, Sendable {
     case generateAudio = "generate_audio"
     case upscaleMedia = "upscale_media"
     case importMedia = "import_media"
+    case importReference = "import_reference"
     case listModels = "list_models"
     case inspectMedia = "inspect_media"
     case inspectTimeline = "inspect_timeline"
@@ -402,6 +403,27 @@ enum ToolDefinitions {
                     ],
                     "name": ["type": "string", "description": "Display name in the library. Defaults to the filename derived from url/path, or 'Imported asset' for bytes."],
                     "folderId": ["type": "string", "description": "Optional. Folder id (from list_folders or create_folder) to place the result in. Omit for the project root."],
+                ],
+                required: ["source"]
+            )
+        ),
+        AgentTool(
+            name: .importReference,
+            description: "Imports a downloaded short-form video (a TikTok/Reel/Short the user loves) as a style REFERENCE — the input for reference-driven editing, NOT a clip to cut. Same 'source' rules as import_media (set exactly one of url/path/bytes; mimeType required for bytes), but the asset is flagged isReference:true in get_media and must be a video. After it finishes importing, call analyze_reference on its id to derive the edit recipe, then reproduce that style on the user's own footage. Never add a reference to the timeline with add_clips. Costs nothing.",
+            inputSchema: objectSchema(
+                properties: [
+                    "source": [
+                        "type": "object",
+                        "description": "Exactly one of url, path, or bytes must be set. mimeType is required when bytes is set; for url it acts as a type-inference override. Must resolve to a video.",
+                        "properties": [
+                            "url": ["type": "string", "description": "HTTPS URL of the reference video. Pre-signed URLs are fine but must not expire mid-download."],
+                            "path": ["type": "string", "description": "Absolute local file path to the downloaded reference video."],
+                            "bytes": ["type": "string", "description": "Base64-encoded video data. Prefer url or path for anything over ~10MB."],
+                            "mimeType": ["type": "string", "description": "Required when bytes is set; optional url override. Must be a video type: video/mp4 or video/quicktime."],
+                        ],
+                    ],
+                    "name": ["type": "string", "description": "Display name for the reference. Defaults to the filename."],
+                    "folderId": ["type": "string", "description": "Optional folder id to place the reference in. Omit for the project root."],
                 ],
                 required: ["source"]
             )

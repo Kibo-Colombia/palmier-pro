@@ -31,6 +31,9 @@ struct MediaManifestEntry: Codable, Sendable, Equatable, Identifiable {
     var folderId: String?
     var cachedRemoteURL: String?
     var cachedRemoteURLExpiresAt: Date?
+    /// Set when the asset is a style *reference* (analysis input), not timeline media. Optional so
+    /// older projects decode clean as non-references.
+    var isReference: Bool?
 }
 
 struct GenerationInput: Codable, Sendable, Equatable {

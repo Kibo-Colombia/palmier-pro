@@ -20,6 +20,9 @@ final class MediaAsset: Identifiable {
     var pendingDownloadURL: URL?
     var cachedRemoteURL: String?
     var cachedRemoteURLExpiresAt: Date?
+    /// True when this asset is a *reference* — a downloaded video dropped in for style analysis,
+    /// not a clip to cut. The recipe analysis reads it; the timeline never references it.
+    var isReference: Bool = false
 
     /// Returns the cached URL if it's set AND not expired; else nil.
     var freshRemoteURL: String? {
@@ -71,6 +74,7 @@ final class MediaAsset: Identifiable {
         self.folderId = entry.folderId
         self.cachedRemoteURL = entry.cachedRemoteURL
         self.cachedRemoteURLExpiresAt = entry.cachedRemoteURLExpiresAt
+        self.isReference = entry.isReference ?? false
     }
 
     /// Produce a serializable manifest entry from this asset.
@@ -90,6 +94,7 @@ final class MediaAsset: Identifiable {
             hasAudio: hasAudio, folderId: folderId,
             cachedRemoteURL: fresh,
             cachedRemoteURLExpiresAt: fresh == nil ? nil : cachedRemoteURLExpiresAt,
+            isReference: isReference ? true : nil,
         )
     }
 

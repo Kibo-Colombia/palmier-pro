@@ -10,6 +10,17 @@ extension ToolExecutor {
 
     func importMedia(_ editor: EditorViewModel, _ args: [String: Any]) throws -> ToolResult {
         try validateUnknownKeys(args, allowed: Self.importMediaAllowedKeys, path: "import_media")
+        return try runImport(editor, args, path: "import_media", asReference: false)
+    }
+
+    /// Same machinery as import_media, but flags the asset as a style reference (analysis input,
+    /// not a clip to cut). References show up in get_media with isReference:true.
+    func importReference(_ editor: EditorViewModel, _ args: [String: Any]) throws -> ToolResult {
+        try validateUnknownKeys(args, allowed: Self.importMediaAllowedKeys, path: "import_reference")
+        return try runImport(editor, args, path: "import_reference", asReference: true)
+    }
+
+    private func runImport(_ editor: EditorViewModel, _ args: [String: Any], path toolPath: String, asReference: Bool) throws -> ToolResult {
         guard let source = args["source"] as? [String: Any] else {
             throw ToolError("Missing required 'source' object")
         }
@@ -25,25 +36,29 @@ extension ToolExecutor {
             throw ToolError("source must set exactly one of 'url', 'path', or 'bytes' (got \(setCount))")
         }
 
+        if asReference, let pathStr, ClipType(fileExtension: URL(fileURLWithPath: pathStr).pathExtension.lowercased()) != .video {
+            throw ToolError("A reference must be a video — got a non-video file.")
+        }
+
         let folderId = try resolveFolderId(args, editor: editor)
         let providedName = args.string("name")
 
         if let pathStr {
-            return try importFromPath(editor: editor, path: pathStr, name: providedName, folderId: folderId)
+            return try importFromPath(editor: editor, path: pathStr, name: providedName, folderId: folderId, asReference: asReference)
         }
         if let bytesStr {
             guard let mimeType else {
                 throw ToolError("source.mimeType is required when source.bytes is set")
             }
-            return try importFromBytes(editor: editor, base64: bytesStr, mimeType: mimeType, name: providedName, folderId: folderId)
+            return try importFromBytes(editor: editor, base64: bytesStr, mimeType: mimeType, name: providedName, folderId: folderId, asReference: asReference)
         }
         if let urlStr {
-            return try importFromURL(editor: editor, urlString: urlStr, mimeOverride: mimeType, name: providedName, folderId: folderId)
+            return try importFromURL(editor: editor, urlString: urlStr, mimeOverride: mimeType, name: providedName, folderId: folderId, asReference: asReference)
         }
         throw ToolError("unreachable")
     }
 
-    private func importFromPath(editor: EditorViewModel, path: String, name: String?, folderId: String?) throws -> ToolResult {
+    private func importFromPath(editor: EditorViewModel, path: String, name: String?, folderId: String?, asReference: Bool = false) throws -> ToolResult {
         let fileURL = URL(fileURLWithPath: path)
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             throw ToolError("File not found: \(path)")
@@ -55,11 +70,12 @@ extension ToolExecutor {
         guard let asset = editor.addMediaAsset(from: fileURL) else {
             throw ToolError("Failed to import file: \(path)")
         }
-        applyImportMetadata(editor: editor, asset: asset, name: name, folderId: folderId)
-        return .ok("Imported '\(asset.name)' (id: \(asset.id), type: \(asset.type.rawValue)) from path. Available now in get_media.")
+        applyImportMetadata(editor: editor, asset: asset, name: name, folderId: folderId, asReference: asReference)
+        let kind = asReference ? "reference" : "media"
+        return .ok("Imported \(kind) '\(asset.name)' (id: \(asset.id), type: \(asset.type.rawValue)) from path. Available now in get_media.")
     }
 
-    private func importFromBytes(editor: EditorViewModel, base64: String, mimeType: String, name: String?, folderId: String?) throws -> ToolResult {
+    private func importFromBytes(editor: EditorViewModel, base64: String, mimeType: String, name: String?, folderId: String?, asReference: Bool = false) throws -> ToolResult {
         guard base64.utf8.count <= Self.importBytesMaxBase64Length else {
             throw ToolError("source.bytes is too large (\(base64.utf8.count) chars; max \(Self.importBytesMaxBase64Length)). Use source.url or source.path for larger files.")
         }
@@ -89,11 +105,15 @@ extension ToolExecutor {
             try? FileManager.default.removeItem(at: destURL)
             throw ToolError("Failed to register imported asset")
         }
-        applyImportMetadata(editor: editor, asset: asset, name: name, folderId: folderId)
-        return .ok("Imported '\(asset.name)' (id: \(asset.id), type: \(asset.type.rawValue), \(data.count) bytes). Available now in get_media.")
+        if asReference, asset.type != .video {
+            throw ToolError("A reference must be a video — got \(asset.type.rawValue).")
+        }
+        applyImportMetadata(editor: editor, asset: asset, name: name, folderId: folderId, asReference: asReference)
+        let kind = asReference ? "reference" : "media"
+        return .ok("Imported \(kind) '\(asset.name)' (id: \(asset.id), type: \(asset.type.rawValue), \(data.count) bytes). Available now in get_media.")
     }
 
-    private func importFromURL(editor: EditorViewModel, urlString: String, mimeOverride: String?, name: String?, folderId: String?) throws -> ToolResult {
+    private func importFromURL(editor: EditorViewModel, urlString: String, mimeOverride: String?, name: String?, folderId: String?, asReference: Bool = false) throws -> ToolResult {
         guard let url = URL(string: urlString) else {
             throw ToolError("source.url is not a valid URL")
         }
@@ -124,6 +144,9 @@ extension ToolExecutor {
         guard let type = ClipType(fileExtension: fileExt) else {
             throw ToolError("Unsupported file extension '.\(fileExt)'")
         }
+        if asReference, type != .video {
+            throw ToolError("A reference must be a video — got \(type.rawValue).")
+        }
 
         guard let projectURL = editor.projectURL else {
             throw ToolError("No project is open; cannot import from URL")
@@ -148,9 +171,10 @@ extension ToolExecutor {
 
         let placeholder = MediaAsset(id: id, url: destURL, type: type, name: displayName)
         placeholder.generationStatus = .downloading
+        placeholder.isReference = asReference
         editor.mediaAssets.append(placeholder)
-        if folderId != nil {
-            applyImportMetadata(editor: editor, asset: placeholder, name: nil, folderId: folderId)
+        if folderId != nil || asReference {
+            applyImportMetadata(editor: editor, asset: placeholder, name: nil, folderId: folderId, asReference: asReference)
         }
 
         Task { @MainActor [weak editor] in
@@ -158,7 +182,8 @@ extension ToolExecutor {
             await Self.downloadImportedAsset(asset: placeholder, remoteURL: url, editor: editor)
         }
 
-        return .ok("Import started. Placeholder asset id: \(id) (type: \(type.rawValue)). Status: downloading. Poll get_media — the asset appears once the download completes.")
+        let kind = asReference ? "reference" : "media"
+        return .ok("\(kind.capitalized) import started. Placeholder asset id: \(id) (type: \(type.rawValue)). Status: downloading. Poll get_media — the asset appears once the download completes.")
     }
 
     @MainActor
@@ -191,11 +216,17 @@ extension ToolExecutor {
         }
     }
 
-    private func applyImportMetadata(editor: EditorViewModel, asset: MediaAsset, name: String?, folderId: String?) {
+    private func applyImportMetadata(editor: EditorViewModel, asset: MediaAsset, name: String?, folderId: String?, asReference: Bool = false) {
         if let name {
             asset.name = name
             if let idx = editor.mediaManifest.entries.firstIndex(where: { $0.id == asset.id }) {
                 editor.mediaManifest.entries[idx].name = name
+            }
+        }
+        if asReference {
+            asset.isReference = true
+            if let idx = editor.mediaManifest.entries.firstIndex(where: { $0.id == asset.id }) {
+                editor.mediaManifest.entries[idx].isReference = true
             }
         }
         if let folderId {

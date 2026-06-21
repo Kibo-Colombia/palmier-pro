@@ -25,6 +25,11 @@ final class MCPService {
 
     @ObservationIgnored
     private let toolExecutor: ToolExecutor
+    /// Cross-project Library + Spaces tools (no open project required). Lets an MCP client
+    /// drive "Organize my Library into Spaces" the same way the in-app Library Kibo does —
+    /// so that work can run over MCP instead of the in-app Anthropic API key.
+    @ObservationIgnored
+    private let libraryExecutor = LibraryToolExecutor()
     @ObservationIgnored
     private var httpServer: MCPHTTPServer?
 
@@ -37,7 +42,9 @@ final class MCPService {
             let server = Server(
                 name: "koma",
                 version: "1.0.0",
-                instructions: AgentInstructions.serverInstructions,
+                instructions: AgentInstructions.serverInstructions
+                    + "\n\n# Library & Spaces\n\n"
+                    + LibraryAgentInstructions.serverInstructions,
                 capabilities: .init(
                     resources: .init(subscribe: false, listChanged: false),
                     tools: .init(listChanged: false)
@@ -70,9 +77,13 @@ final class MCPService {
     }
 
     private func registerTools(on server: Server) async {
-        let tools: [Tool] = ToolDefinitions.all.map { def in
+        let projectTools: [Tool] = ToolDefinitions.all.map { def in
             Tool(name: def.name.rawValue, description: def.description, inputSchema: def.mcpSchemaValue)
         }
+        let libraryTools: [Tool] = LibraryToolDefinitions.all.map { def in
+            Tool(name: def.name, description: def.description, inputSchema: def.mcpSchemaValue)
+        }
+        let tools = projectTools + libraryTools
 
         await server.withMethodHandler(ListTools.self) { _ in
             .init(tools: tools)
@@ -89,7 +100,14 @@ final class MCPService {
     // Convert args inside the actor so the non-Sendable dict never crosses the hop.
     private func dispatchCall(_ params: CallTool.Parameters) async -> CallTool.Result {
         let args = ToolArgsBridge.argsFromMCP(params.arguments ?? [:])
-        let result = await toolExecutor.execute(name: params.name, args: args)
+        // Library/Spaces tools operate on the cross-project Library; everything else
+        // targets the open project's timeline via the editor-backed executor.
+        let result: ToolResult
+        if LibraryToolName(rawValue: params.name) != nil {
+            result = await libraryExecutor.execute(name: params.name, args: args)
+        } else {
+            result = await toolExecutor.execute(name: params.name, args: args)
+        }
         return result.toMCPResult()
     }
 

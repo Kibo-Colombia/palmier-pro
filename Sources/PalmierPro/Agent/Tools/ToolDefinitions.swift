@@ -543,7 +543,7 @@ extension AgentTool {
         Self.valueFromJSON(inputSchema)
     }
 
-    private static func valueFromJSON(_ any: Any) -> Value {
+    fileprivate static func valueFromJSON(_ any: Any) -> Value {
         switch any {
         case let v as Value: return v
         case let s as String: return .string(s)
@@ -558,6 +558,12 @@ extension AgentTool {
         default: return .null
         }
     }
+}
+
+extension AnthropicToolSchema {
+    /// Lets the Library tool schemas (plain `[String: Any]`) ride the same JSON→`Value`
+    /// converter as the project tools when they're advertised over MCP.
+    var mcpSchemaValue: Value { AgentTool.valueFromJSON(inputSchema) }
 }
 
 enum ToolArgsBridge {

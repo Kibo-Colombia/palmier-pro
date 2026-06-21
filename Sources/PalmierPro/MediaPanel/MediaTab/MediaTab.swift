@@ -37,6 +37,8 @@ struct MediaTab: View {
     @State var marqueeSelection = MarqueeSelection()
 
     @State private var mediaPanelHeight: CGFloat = 600
+    /// Whether the library load-status readout popover is open.
+    @State var showLibraryStatus = false
 
     enum ViewMode: String, CaseIterable {
         case folder, flat, grouped
@@ -239,7 +241,7 @@ struct MediaTab: View {
         if let id = dropTargetFolderId, editor.folder(id: id) == nil { dropTargetFolderId = nil }
     }
 
-    private func revealAsset(id: String) {
+    func revealAsset(id: String) {
         guard let asset = editor.mediaAssets.first(where: { $0.id == id }) else { return }
         if !passesFilters(asset) {
             clearFilters()
@@ -331,6 +333,8 @@ struct MediaTab: View {
                 .layoutPriority(1)
 
             Spacer(minLength: AppTheme.Spacing.xs)
+
+            libraryStatusPill
 
             itemCountText
         }

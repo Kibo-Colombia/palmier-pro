@@ -96,8 +96,10 @@ enum AppTheme {
 
     enum Status {
         static let error = NSColor(red: 0xE5/255.0, green: 0x4F/255.0, blue: 0x4F/255.0, alpha: 1)
+        static let success = NSColor(red: 0x4F/255.0, green: 0xB4/255.0, blue: 0x77/255.0, alpha: 1)
 
         static var errorColor: Color { Color(error) }
+        static var successColor: Color { Color(success) }
     }
 
     // MARK: - Text

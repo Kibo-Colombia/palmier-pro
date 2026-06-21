@@ -37,7 +37,7 @@ final class LibraryToolExecutor: AgentToolHost {
     private func listLibrary() -> ToolResult {
         let roots = RootsRegistry.shared
         let indexer = LibraryIndexer.shared
-        var seenCount = 0, labeledCount = 0, speechCount = 0, silentCount = 0, pendingSaidCount = 0
+        var seenCount = 0, labeledCount = 0, speechCount = 0, silentCount = 0, pendingSaidCount = 0, faceCount = 0
         let files = roots.files.map { url -> [String: Any] in
             let fileLabels = labels(for: url)
             let seen = EmbeddingStore.hasIndex(for: url)
@@ -67,6 +67,10 @@ final class LibraryToolExecutor: AgentToolHost {
                 dict["summary"] = s.fileSummary
                 dict["summaryTier"] = s.fileTier
             }
+            if let faces = faceInfo(for: url) {
+                dict["faces"] = faces
+                faceCount += 1
+            }
             if let addr = roots.address(for: url) { dict["dragId"] = addr.dragString }
             return dict
         }
@@ -83,6 +87,7 @@ final class LibraryToolExecutor: AgentToolHost {
                 "heardSpeech": speechCount,
                 "silent": silentCount,
                 "saidPending": pendingSaidCount,
+                "withFaces": faceCount,
             ],
             "indexing": [
                 "phase": indexer.phase.rawValue,
@@ -130,6 +135,7 @@ final class LibraryToolExecutor: AgentToolHost {
                 dict["summary"] = s.fileSummary
                 dict["summaryTier"] = s.fileTier
             }
+            if let faces = faceInfo(for: url) { dict["faces"] = faces }
             matches.append(dict)
             if matches.count >= limit { break }
         }
@@ -186,6 +192,14 @@ final class LibraryToolExecutor: AgentToolHost {
     private func storedSummary(for url: URL) -> AssetSummary? {
         guard let key = EmbeddingStore.key(for: url) else { return nil }
         return SummaryStore.load(key: key)
+    }
+
+    /// Face presence for a file from the on-disk `FaceStore` (passive). `max` is the most faces seen
+    /// in a single frame (≈ people on screen). Nil when the clip has no detected faces.
+    private func faceInfo(for url: URL) -> [String: Any]? {
+        guard let key = EmbeddingStore.key(for: url),
+              let record = FaceStore.load(key: key), record.hasFace else { return nil }
+        return ["present": true, "max": record.maxFaces]
     }
 
     /// The "said" understanding state from the on-disk transcript: no transcript yet → pending,

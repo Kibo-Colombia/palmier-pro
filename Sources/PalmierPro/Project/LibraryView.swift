@@ -34,7 +34,7 @@ struct LibraryView: View {
             if indexer.isIndexing {
                 HStack(spacing: AppTheme.Spacing.xs) {
                     ProgressView().controlSize(.small)
-                    Text("\(indexer.phase == .hearing ? "Listening" : "Understanding") \(indexer.done)/\(indexer.total)")
+                    Text("\(indexer.phaseLabel) \(indexer.done)/\(indexer.total)")
                         .font(.system(size: AppTheme.FontSize.xs))
                         .foregroundStyle(AppTheme.Text.tertiaryColor)
                         .monospacedDigit()

@@ -13,12 +13,21 @@ import Foundation
 final class LibraryIndexer {
     static let shared = LibraryIndexer()
 
-    enum Phase: String, Sendable { case idle, seeing, hearing }
+    enum Phase: String, Sendable { case idle, seeing, hearing, recognizing }
 
     private(set) var phase: Phase = .idle
     private(set) var done = 0
     private(set) var total = 0
     var isIndexing: Bool { phase != .idle }
+
+    /// Human label for the live pass, shown in the Library header.
+    var phaseLabel: String {
+        switch phase {
+        case .hearing: "Listening"
+        case .recognizing: "Recognizing"
+        default: "Understanding"
+        }
+    }
 
     /// Candidate spoken languages for the auto-detect transcription pass. Order is irrelevant —
     /// each clip is scored independently and the best-fitting language wins. Defaults to the
@@ -47,6 +56,7 @@ final class LibraryIndexer {
     private func run(_ urls: [URL]) async {
         await seeing(urls)
         await hearing(urls)
+        await recognizing(urls)
         phase = .idle
         total = 0
         done = 0
@@ -86,6 +96,22 @@ final class LibraryIndexer {
         for url in pending {
             if Task.isCancelled { break }
             _ = await TranscriptCache.shared.libraryTranscript(for: url, candidates: transcriptionLocales)
+            done += 1
+        }
+    }
+
+    /// On-device face detection (the "people" layer). Persists every clip — including no-face ones —
+    /// so the pass resumes cheaply. Free (Apple Vision); runs after seeing/hearing so the heavier
+    /// embedding + transcription passes finish first.
+    private func recognizing(_ urls: [URL]) async {
+        let pending = urls.filter { FaceIndexer.needsIndex(url: $0) }
+        guard !pending.isEmpty else { return }
+        phase = .recognizing
+        total = pending.count
+        done = 0
+        for url in pending {
+            if Task.isCancelled { break }
+            await FaceIndexer.index(url: url)
             done += 1
         }
     }

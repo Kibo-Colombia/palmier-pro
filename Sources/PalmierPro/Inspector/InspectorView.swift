@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct InspectorView: View {
     @Environment(EditorViewModel.self) var editor
@@ -19,6 +20,8 @@ struct InspectorView: View {
     @State private var preferredTab: ClipTab = .video
     @State private var preferredAssetTab: AssetTab = .details
     @State private var transformExpanded = true
+    @State private var colorExpanded = false
+    @State private var looksVersion = 0   // bumped to refresh the strip after a .cube import
 
     private var headerTitle: String {
         if selectedVisualClip != nil || selectedAudioClip != nil { return "Inspector" }
@@ -294,6 +297,8 @@ struct InspectorView: View {
                     transformSection(clips: clips)
                     speedSection(clips: clips + selectedAudioClips)
                         .padding(.trailing, KeyframesMetrics.controlsColumnWidth + AppTheme.Spacing.sm)
+                    colorSection(clips: clips)
+                        .padding(.trailing, KeyframesMetrics.controlsColumnWidth + AppTheme.Spacing.sm)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.trailing, AppTheme.Spacing.sm)
@@ -305,6 +310,7 @@ struct InspectorView: View {
         } else {
             transformSection(clips: clips)
             speedSection(clips: clips + selectedAudioClips)
+            colorSection(clips: clips)
         }
 
         keyframesToggleBar(enabled: single != nil)
@@ -666,6 +672,224 @@ struct InspectorView: View {
             for c in clips { editor.commitOpacity(clipId: c.id, value: newVal) }
             editor.undoManager?.endUndoGrouping()
             editor.undoManager?.setActionName("Change Opacity")
+        }
+    }
+
+    // MARK: - Color Section
+
+    @ViewBuilder
+    private func colorSection(clips: [Clip]) -> some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+            colorHeader(clips: clips)
+            if colorExpanded {
+                VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+                    looksStrip(clips: clips)
+                    if currentLut(clips) != nil {
+                        propertyRow(label: "Look") { lookIntensityField(clips: clips) }
+                    }
+                    gradeRow("Exposure", clips: clips, range: -4...4, \.exposure, action: "Adjust Exposure")
+                    gradeRow("Contrast", clips: clips, range: 0...4, \.contrast, action: "Adjust Contrast")
+                    gradeRow("Saturation", clips: clips, range: 0...4, \.saturation, action: "Adjust Saturation")
+                    gradeRow("Warmth", clips: clips, range: -100...100, format: "%.0f", \.temperature, action: "Adjust Warmth")
+                    autoColorButton(clips: clips)
+                }
+                .padding(.leading, sectionContentIndent)
+            }
+        }
+    }
+
+    private func colorHeader(clips: [Clip]) -> some View {
+        collapsibleHeader(
+            title: "Color",
+            expanded: colorExpanded,
+            onToggle: { colorExpanded.toggle() },
+            resetHelp: colorExpanded ? "Reset color grade" : nil,
+            onReset: colorExpanded ? {
+                commitToClips(clips, actionName: "Reset Color") { c in
+                    editor.commitClipProperty(clipId: c.id) { $0.grade = ColorGrade(); $0.gradeTrack = nil }
+                }
+            } : nil
+        )
+    }
+
+    /// The look id shared by every selected clip, or nil if they disagree / have none.
+    private func currentLut(_ clips: [Clip]) -> String? {
+        let first = clips.first?.grade.lut
+        return clips.allSatisfy { $0.grade.lut == first } ? first : nil
+    }
+
+    private func looksStrip(clips: [Clip]) -> some View {
+        let first = clips.first?.grade.lut
+        let uniform = clips.allSatisfy { $0.grade.lut == first }
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: AppTheme.Spacing.sm) {
+                lookChip(name: "None", colors: lookSwatch(nil), selected: uniform && first == nil) {
+                    applyLookFromUI(nil, clips: clips)
+                }
+                ForEach(LUTStore.shared.bundledLooks, id: \.id) { look in
+                    lookChip(name: look.name, colors: lookSwatch(look.id), selected: uniform && first == look.id) {
+                        applyLookFromUI(look.id, clips: clips)
+                    }
+                }
+                ForEach(LUTStore.shared.importedLooks, id: \.id) { look in
+                    lookChip(name: look.name, colors: lookSwatch(look.id), selected: uniform && first == look.id) {
+                        applyLookFromUI(look.id, clips: clips)
+                    }
+                }
+                importLookChip()
+            }
+            .padding(.vertical, AppTheme.Spacing.xxs)
+        }
+        .id(looksVersion)
+    }
+
+    private func lookChip(name: String, colors: [Color], selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: AppTheme.Spacing.xxs) {
+                RoundedRectangle(cornerRadius: AppTheme.Radius.xs)
+                    .fill(LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(width: 48, height: 32)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AppTheme.Radius.xs)
+                            .strokeBorder(
+                                selected ? AppTheme.Accent.timecodeColor : Color.white.opacity(AppTheme.Opacity.muted),
+                                lineWidth: selected ? AppTheme.BorderWidth.medium : AppTheme.BorderWidth.hairline)
+                    )
+                Text(name)
+                    .font(.system(size: AppTheme.FontSize.xxs, weight: selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? AppTheme.Text.primaryColor : AppTheme.Text.tertiaryColor)
+                    .lineLimit(1)
+            }
+            .frame(width: 52)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(name)
+    }
+
+    private func importLookChip() -> some View {
+        Button(action: importLookFromPanel) {
+            VStack(spacing: AppTheme.Spacing.xxs) {
+                RoundedRectangle(cornerRadius: AppTheme.Radius.xs)
+                    .fill(Color.white.opacity(AppTheme.Opacity.subtle))
+                    .frame(width: 48, height: 32)
+                    .overlay(Image(systemName: "plus")
+                        .font(.system(size: AppTheme.FontSize.sm))
+                        .foregroundStyle(AppTheme.Text.tertiaryColor))
+                    .overlay(RoundedRectangle(cornerRadius: AppTheme.Radius.xs)
+                        .strokeBorder(Color.white.opacity(AppTheme.Opacity.muted), lineWidth: AppTheme.BorderWidth.hairline))
+                Text(".cube")
+                    .font(.system(size: AppTheme.FontSize.xxs))
+                    .foregroundStyle(AppTheme.Text.tertiaryColor)
+            }
+            .frame(width: 52)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Import a .cube LUT")
+    }
+
+    /// A swatch built by pushing a neutral gray ramp through the look — shows its color character.
+    private func lookSwatch(_ id: String?) -> [Color] {
+        guard let id, let look = BundledLooks.look(id) else {
+            return [Color(white: 0.30), Color(white: 0.72)]
+        }
+        func c(_ v: Float) -> Color {
+            let (r, g, b) = look.transform(v, v, v)
+            return Color(red: Double(r), green: Double(g), blue: Double(b))
+        }
+        return [c(0.22), c(0.5), c(0.8)]
+    }
+
+    private func applyLookFromUI(_ id: String?, clips: [Clip]) {
+        commitToClips(clips, actionName: id == nil ? "Clear Look" : "Apply Look") { c in
+            editor.commitClipProperty(clipId: c.id) { $0.grade.lut = id }
+        }
+    }
+
+    private func importLookFromPanel() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        if let cube = UTType(filenameExtension: "cube") { panel.allowedContentTypes = [cube] }
+        guard panel.runModal() == .OK, let url = panel.url, let data = try? Data(contentsOf: url) else { return }
+        _ = try? LUTStore.shared.importLook(suggestedName: url.deletingPathExtension().lastPathComponent, data: data)
+        looksVersion += 1
+    }
+
+    private func lookIntensityField(clips: [Clip]) -> some View {
+        ScrubbableNumberField(
+            value: sharedClipValue(clips) { $0.grade.lookIntensity },
+            range: 0...1, displayMultiplier: 100, format: "%.0f", valueSuffix: "%", fieldWidth: 50,
+            onChanged: { v in for c in clips { editor.applyClipProperty(clipId: c.id) { $0.grade.lookIntensity = v } } }
+        ) { v in
+            editor.undoManager?.beginUndoGrouping()
+            for c in clips { editor.commitClipProperty(clipId: c.id) { $0.grade.lookIntensity = v } }
+            editor.undoManager?.endUndoGrouping()
+            editor.undoManager?.setActionName("Adjust Look Intensity")
+        }
+    }
+
+    private func gradeRow(
+        _ label: String, clips: [Clip], range: ClosedRange<Double>,
+        multiplier: Double = 1, format: String = "%.2f", valueSuffix: String = "",
+        _ kp: WritableKeyPath<ColorGrade, Double>, action: String
+    ) -> some View {
+        propertyRow(label: label) {
+            ScrubbableNumberField(
+                value: sharedClipValue(clips) { $0.grade[keyPath: kp] },
+                range: range, displayMultiplier: multiplier, format: format, valueSuffix: valueSuffix, fieldWidth: 50,
+                onChanged: { v in for c in clips { editor.applyClipProperty(clipId: c.id) { $0.grade[keyPath: kp] = v } } }
+            ) { v in
+                editor.undoManager?.beginUndoGrouping()
+                for c in clips { editor.commitClipProperty(clipId: c.id) { $0.grade[keyPath: kp] = v } }
+                editor.undoManager?.endUndoGrouping()
+                editor.undoManager?.setActionName(action)
+            }
+        }
+    }
+
+    private func autoColorButton(clips: [Clip]) -> some View {
+        Button {
+            autoColorFromUI(clips)
+        } label: {
+            HStack(spacing: AppTheme.Spacing.xs) {
+                Image(systemName: "wand.and.stars").font(.system(size: AppTheme.FontSize.xs, weight: .medium))
+                Text("Auto").font(.system(size: AppTheme.FontSize.xs, weight: .medium))
+            }
+            .foregroundStyle(AppTheme.Text.secondaryColor)
+            .padding(.horizontal, AppTheme.Spacing.smMd)
+            .padding(.vertical, AppTheme.Spacing.xs)
+            .background(RoundedRectangle(cornerRadius: AppTheme.Radius.sm).fill(Color.white.opacity(AppTheme.Opacity.subtle)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Auto-correct exposure + white balance")
+    }
+
+    private func autoColorFromUI(_ clips: [Clip]) {
+        let fps = editor.timeline.fps
+        let items: [(String, URL)] = clips.compactMap { c in
+            editor.mediaResolver.resolveURL(for: c.mediaRef).map { (c.id, $0) }
+        }
+        guard !items.isEmpty else { return }
+        Task { @MainActor in
+            var results: [(String, AutoColorAnalysis.Result)] = []
+            for (id, url) in items {
+                guard let clip = editor.clipFor(id: id) else { continue }
+                if let r = await AutoColorAnalysis.analyze(url: url, clip: clip, fps: fps) {
+                    results.append((id, r))
+                }
+            }
+            guard !results.isEmpty else { return }
+            editor.undoManager?.beginUndoGrouping()
+            for (id, r) in results {
+                editor.commitClipProperty(clipId: id) {
+                    $0.grade.exposure = r.exposure; $0.grade.temperature = r.temperature; $0.grade.tint = r.tint
+                }
+            }
+            editor.undoManager?.endUndoGrouping()
+            editor.undoManager?.setActionName("Auto Color")
         }
     }
 

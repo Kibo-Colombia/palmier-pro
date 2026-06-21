@@ -91,6 +91,7 @@ struct Clip: Codable, Sendable, Equatable, Identifiable {
     var opacity: Double = 1.0
     var transform: Transform = Transform()
     var crop: Crop = Crop()
+    var grade: ColorGrade = ColorGrade()
     var linkGroupId: String?
     var captionGroupId: String?
 
@@ -105,14 +106,15 @@ struct Clip: Codable, Sendable, Equatable, Identifiable {
     var rotationTrack: KeyframeTrack<Double>?
     var cropTrack: KeyframeTrack<Crop>?
     var volumeTrack: KeyframeTrack<Double>?
+    var gradeTrack: KeyframeTrack<ColorGrade>?
 
     private enum CodingKeys: String, CodingKey {
         case id, mediaRef, mediaType, sourceClipType, startFrame, durationFrames
         case trimStartFrame, trimEndFrame, speed, volume
         case fadeInFrames, fadeOutFrames, fadeInInterpolation, fadeOutInterpolation
-        case opacity, transform, crop
+        case opacity, transform, crop, grade
         case linkGroupId, captionGroupId, textContent, textStyle
-        case opacityTrack, positionTrack, scaleTrack, rotationTrack, cropTrack, volumeTrack
+        case opacityTrack, positionTrack, scaleTrack, rotationTrack, cropTrack, volumeTrack, gradeTrack
     }
 
     /// Frame where this clip ends on the timeline
@@ -177,6 +179,18 @@ struct Clip: Codable, Sendable, Equatable, Identifiable {
 
     func cropAt(frame: Int) -> Crop {
         cropTrack?.sample(at: keyframeOffset(forFrame: frame), fallback: crop) ?? crop
+    }
+
+    /// Resolve the effective ColorGrade at `frame` (keyframe track shadows the static base, like opacity/crop).
+    func gradeAt(frame: Int) -> ColorGrade {
+        gradeTrack?.sample(at: keyframeOffset(forFrame: frame), fallback: grade) ?? grade
+    }
+
+    /// True when this clip would change any pixel's color — gates the GradeCompositor on/off.
+    var hasNonIdentityGrade: Bool {
+        if !grade.isIdentity { return true }
+        guard let track = gradeTrack, track.isActive else { return false }
+        return track.keyframes.contains { !$0.value.isIdentity }
     }
 
     func liveVolumeKfDb(at frame: Int) -> Double? {
@@ -252,6 +266,7 @@ extension Clip {
         rotationTrack = clampedKeyframeTrack(rotationTrack)
         cropTrack = clampedKeyframeTrack(cropTrack)
         volumeTrack = clampedKeyframeTrack(volumeTrack)
+        gradeTrack = clampedKeyframeTrack(gradeTrack)
     }
 
     mutating func rescaleKeyframes(by scale: Double) {
@@ -261,6 +276,7 @@ extension Clip {
         rotationTrack = rescaledKeyframeTrack(rotationTrack, by: scale)
         cropTrack = rescaledKeyframeTrack(cropTrack, by: scale)
         volumeTrack = rescaledKeyframeTrack(volumeTrack, by: scale)
+        gradeTrack = rescaledKeyframeTrack(gradeTrack, by: scale)
     }
 
     private func clampedKeyframeTrack<V: Codable & Sendable & Equatable>(
@@ -347,6 +363,7 @@ extension Clip {
             opacity: (try? c.decode(Double.self, forKey: .opacity)) ?? 1.0,
             transform: (try? c.decode(Transform.self, forKey: .transform)) ?? Transform(),
             crop: (try? c.decode(Crop.self, forKey: .crop)) ?? Crop(),
+            grade: (try? c.decode(ColorGrade.self, forKey: .grade)) ?? ColorGrade(),
             linkGroupId: try? c.decode(String.self, forKey: .linkGroupId),
             captionGroupId: try? c.decode(String.self, forKey: .captionGroupId),
             textContent: try? c.decode(String.self, forKey: .textContent),
@@ -356,7 +373,8 @@ extension Clip {
             scaleTrack: try? c.decode(KeyframeTrack<AnimPair>.self, forKey: .scaleTrack),
             rotationTrack: try? c.decode(KeyframeTrack<Double>.self, forKey: .rotationTrack),
             cropTrack: try? c.decode(KeyframeTrack<Crop>.self, forKey: .cropTrack),
-            volumeTrack: try? c.decode(KeyframeTrack<Double>.self, forKey: .volumeTrack)
+            volumeTrack: try? c.decode(KeyframeTrack<Double>.self, forKey: .volumeTrack),
+            gradeTrack: try? c.decode(KeyframeTrack<ColorGrade>.self, forKey: .gradeTrack)
         )
     }
 }

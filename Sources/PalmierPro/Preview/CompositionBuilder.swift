@@ -432,12 +432,71 @@ enum CompositionBuilder {
         var vcConfig = AVVideoComposition.Configuration()
         vcConfig.renderSize = renderSize
         vcConfig.frameDuration = CMTime(value: 1, timescale: timescale)
-        vcConfig.instructions = [instruction]
         vcConfig.colorPrimaries = AVVideoColorPrimaries_ITU_R_709_2
         vcConfig.colorTransferFunction = AVVideoTransferFunction_ITU_R_709_2
         vcConfig.colorYCbCrMatrix = AVVideoYCbCrMatrix_ITU_R_709_2
 
+        // Color grading: only when a visible clip carries a non-identity grade do we install the
+        // custom compositor (which reproduces geometry + grade). Otherwise the stock built-in
+        // compositor path is unchanged — zero risk / zero cost for ungraded projects.
+        if let gradeInstruction = makeGradeInstruction(
+            timeline: timeline,
+            trackMappings: trackMappings,
+            clipNaturalSizes: clipNaturalSizes,
+            clipTransforms: clipTransforms,
+            compositionDuration: compositionDuration,
+            renderSize: renderSize
+        ) {
+            vcConfig.customVideoCompositorClass = GradeCompositor.self
+            vcConfig.instructions = [gradeInstruction]
+        } else {
+            vcConfig.instructions = [instruction]
+        }
+
         return (audioMix, AVVideoComposition(configuration: vcConfig))
+    }
+
+    /// Builds the grade compositor's instruction, or nil if no visible clip has a non-identity grade.
+    /// The track order mirrors the built-in `layerInstructions` array (front→back); the compositor
+    /// paints it reversed over a synthesized black background.
+    private static func makeGradeInstruction(
+        timeline: Timeline,
+        trackMappings: [TrackMapping],
+        clipNaturalSizes: [String: CGSize],
+        clipTransforms: [String: CGAffineTransform],
+        compositionDuration: CMTime,
+        renderSize: CGSize
+    ) -> GradeInstruction? {
+        var tracks: [GradeTrackRender] = []
+        var anyGrade = false
+        for mapping in trackMappings where mapping.isVideo {
+            guard case .timeline(let trackIndex, let clipIds) = mapping.kind,
+                  timeline.tracks.indices.contains(trackIndex) else { continue }
+            let track = timeline.tracks[trackIndex]
+            let renders: [GradeClipRender] = track.clips
+                .sorted { $0.startFrame < $1.startFrame }
+                .filter { $0.mediaType != .text }
+                .filter { clipIds?.contains($0.id) ?? true }
+                .map { clip in
+                    GradeClipRender(
+                        clip: clip,
+                        natSize: clipNaturalSizes[clip.id] ?? mapping.naturalSize,
+                        preferredTransform: clipTransforms[clip.id] ?? .identity
+                    )
+                }
+            if renders.contains(where: { $0.clip.hasNonIdentityGrade }) { anyGrade = true }
+            tracks.append(GradeTrackRender(
+                trackID: mapping.compositionTrack.trackID,
+                hidden: track.hidden,
+                clips: renders
+            ))
+        }
+        guard anyGrade else { return nil }
+        let model = GradeRenderModel(fps: timeline.fps, renderSize: renderSize, tracks: tracks)
+        return GradeInstruction(
+            timeRange: CMTimeRange(start: .zero, duration: compositionDuration),
+            model: model
+        )
     }
 
     /// Smooth-curve subdivision count for non-linear keyframe segments.

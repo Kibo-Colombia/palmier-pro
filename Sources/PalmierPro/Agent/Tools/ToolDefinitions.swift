@@ -10,6 +10,7 @@ enum ToolName: String, CaseIterable, Sendable {
     case moveClips = "move_clips"
     case setClipProperties = "set_clip_properties"
     case setKeyframes = "set_keyframes"
+    case setGrade = "set_grade"
     case splitClip = "split_clip"
     case addTexts = "add_texts"
     case addCaptions = "add_captions"
@@ -222,6 +223,28 @@ enum ToolDefinitions {
                     ],
                 ],
                 required: ["clipId", "property", "keyframes"]
+            )
+        ),
+        AgentTool(
+            name: .setGrade,
+            description: "Apply primary color correction (a color grade) to one or more clips in a single undoable action — the grade-by-conversation tool. Partial merge: pass any combination of channels; omitted channels keep their current value. All values apply to every clip in clipIds. The grade renders live in the preview AND bakes into export, and you can verify it with inspect_timeline (the rendered frames show the grade). For a per-clip look use separate calls.\n\nChannels (neutral value → effect, clamped to the range shown):\n  • exposure    (0, −4…4)      EV stops; + brightens, − darkens\n  • brightness  (0, −1…1)      additive lift\n  • contrast    (1, 0…4)       <1 flatter, >1 punchier\n  • saturation  (1, 0…4)       0 = grayscale, >1 more vivid\n  • temperature (0, −100…100)  + warmer (orange), − cooler (blue)\n  • tint        (0, −100…100)  + magenta, − green\n  • intensity   (1, 0…1)       global wet/dry mix of the whole grade\nSet reset:true to clear a clip's grade back to neutral (combine with channels to reset-then-apply). Out-of-range values are clamped and the applied values are echoed back. Audio clips are rejected. A clip with a neutral grade renders exactly as before (no cost).",
+            inputSchema: objectSchema(
+                properties: [
+                    "clipIds": [
+                        "type": "array",
+                        "description": "Clip IDs to grade. The channel values below apply to every clip in this list.",
+                        "items": ["type": "string"],
+                    ],
+                    "exposure": ["type": "number", "description": "EV stops, neutral 0, range −4…4."],
+                    "brightness": ["type": "number", "description": "Additive lift, neutral 0, range −1…1."],
+                    "contrast": ["type": "number", "description": "Multiplicative, neutral 1, range 0…4."],
+                    "saturation": ["type": "number", "description": "Multiplicative, neutral 1, range 0…4 (0 = grayscale)."],
+                    "temperature": ["type": "number", "description": "Warm(+)/cool(−), neutral 0, range −100…100."],
+                    "tint": ["type": "number", "description": "Magenta(+)/green(−), neutral 0, range −100…100."],
+                    "intensity": ["type": "number", "description": "Global wet/dry mix of the grade, neutral 1, range 0…1."],
+                    "reset": ["type": "boolean", "description": "Reset the grade to neutral before applying any channels above."],
+                ],
+                required: ["clipIds"]
             )
         ),
         AgentTool(

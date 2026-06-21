@@ -75,7 +75,7 @@ extension Crop: KeyframeInterpolatable {
 
 /// Identifies which clip property an inspector lane / stamp button drives.
 enum AnimatableProperty: String, CaseIterable, Sendable {
-    case opacity, position, scale, rotation, crop, volume
+    case opacity, position, scale, rotation, crop, volume, grade
 
     var displayName: String {
         switch self {
@@ -85,6 +85,7 @@ enum AnimatableProperty: String, CaseIterable, Sendable {
         case .rotation: "Rotation"
         case .crop:     "Crop"
         case .volume:   "Volume"
+        case .grade:    "Color"
         }
     }
 }
@@ -110,6 +111,7 @@ extension Clip {
         case .rotation: offsets = rotationTrack?.keyframes.map(\.frame) ?? []
         case .crop:     offsets = cropTrack?.keyframes.map(\.frame) ?? []
         case .volume:   offsets = volumeTrack?.keyframes.map(\.frame) ?? []
+        case .grade:    offsets = gradeTrack?.keyframes.map(\.frame) ?? []
         }
         return offsets.map(toAbs)
     }
@@ -123,6 +125,7 @@ extension Clip {
         case .rotation: return rotationTrack?.keyframes.first(where: { $0.frame == o })?.interpolationOut
         case .crop:     return cropTrack?.keyframes.first(where: { $0.frame == o })?.interpolationOut
         case .volume:   return volumeTrack?.keyframes.first(where: { $0.frame == o })?.interpolationOut
+        case .grade:    return gradeTrack?.keyframes.first(where: { $0.frame == o })?.interpolationOut
         }
     }
 
@@ -136,6 +139,7 @@ extension Clip {
         for kf in rotationTrack?.keyframes ?? [] { s.insert(kf.frame + absStart) }
         for kf in cropTrack?.keyframes ?? [] { s.insert(kf.frame + absStart) }
         for kf in volumeTrack?.keyframes ?? [] { s.insert(kf.frame + absStart) }
+        for kf in gradeTrack?.keyframes ?? [] { s.insert(kf.frame + absStart) }
         return s.sorted()
     }
 
@@ -171,6 +175,9 @@ extension Clip {
         case .volume:
             volumeTrack?.remove(at: o)
             if volumeTrack?.keyframes.isEmpty == true { volumeTrack = nil }
+        case .grade:
+            gradeTrack?.remove(at: o)
+            if gradeTrack?.keyframes.isEmpty == true { gradeTrack = nil }
         }
     }
 
@@ -182,6 +189,7 @@ extension Clip {
         case .rotation: rotationTrack = nil
         case .crop:     cropTrack = nil
         case .volume:   volumeTrack = nil
+        case .grade:    gradeTrack = nil
         }
     }
 
@@ -212,6 +220,10 @@ extension Clip {
             if let i = volumeTrack?.keyframes.firstIndex(where: { $0.frame == o }) {
                 volumeTrack?.keyframes[i].interpolationOut = interpolation
             }
+        case .grade:
+            if let i = gradeTrack?.keyframes.firstIndex(where: { $0.frame == o }) {
+                gradeTrack?.keyframes[i].interpolationOut = interpolation
+            }
         }
     }
 
@@ -224,6 +236,7 @@ extension Clip {
         case .rotation: rotationTrack?.move(from: fromO, to: toO)
         case .crop:     cropTrack?.move(from: fromO, to: toO)
         case .volume:   volumeTrack?.move(from: fromO, to: toO)
+        case .grade:    gradeTrack?.move(from: fromO, to: toO)
         }
     }
 }

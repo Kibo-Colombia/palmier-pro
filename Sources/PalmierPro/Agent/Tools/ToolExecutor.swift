@@ -45,6 +45,7 @@ final class ToolExecutor {
             case .upscaleMedia:  return try upscaleMedia(editor, args)
             case .importMedia:   return try importMedia(editor, args)
             case .importReference: return try importReference(editor, args)
+            case .analyzeReference: return try await analyzeReference(editor, args)
             case .listModels:    return listModels(args)
             case .listFolders:   return listFolders(editor)
             case .createFolder:  return try createFolder(editor, args)

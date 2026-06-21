@@ -20,6 +20,7 @@ enum ToolName: String, CaseIterable, Sendable {
     case upscaleMedia = "upscale_media"
     case importMedia = "import_media"
     case importReference = "import_reference"
+    case analyzeReference = "analyze_reference"
     case listModels = "list_models"
     case inspectMedia = "inspect_media"
     case inspectTimeline = "inspect_timeline"
@@ -426,6 +427,17 @@ enum ToolDefinitions {
                     "folderId": ["type": "string", "description": "Optional folder id to place the reference in. Omit for the project root."],
                 ],
                 required: ["source"]
+            )
+        ),
+        AgentTool(
+            name: .analyzeReference,
+            description: "Analyzes a reference video (imported via import_reference) into a confidence-tagged EDIT RECIPE — the engine of reference-driven editing. Returns a storyboard (one JPEG per detected shot, in order) PLUS a JSON 'recipe' object. The deterministic half is measured on-device and HIGH-confidence: format (aspect/length/fps), pacing (shot cuts, cuts/sec, avg shot length, cut times), beat (BPM + beat-grid times for cut-to-beat — may be null if the audio has no clear pulse), captions (present/coverage/position/cadence), color (avg RGB, brightness, saturation, warmth, a moodHint). The fuzzy half ('vibe': transitionStyle, captionAnimation, colorLook, effects, summary) is returned NULL — YOU fill it by looking at the storyboard frames, as low-confidence guesses to confirm with the user. Workflow: auto-apply the high-confidence fields to the user's own footage, surface the vibe fields as candidate picks. The color LUT/look pack is owned by color grading; approximate color with set_grade's minor knobs until it lands. Read the 'guidance' field in the response. On-device, costs nothing.",
+            inputSchema: objectSchema(
+                properties: [
+                    "mediaRef": ["type": "string", "description": "Asset id of the reference (must have isReference:true, from import_reference)."],
+                    "maxFrames": ["type": "integer", "description": "Max storyboard frames to return (default 8, max 12). One per detected shot, evenly sampled if there are more shots than this."],
+                ],
+                required: ["mediaRef"]
             )
         ),
         AgentTool(

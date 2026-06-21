@@ -16,6 +16,8 @@ final class LibraryToolExecutor: AgentToolHost {
             switch tool {
             case .listLibrary:    return listLibrary()
             case .searchLibrary:  return searchLibrary(args)
+            case .getTranscript:  return try getTranscript(args)
+            case .setSummary:     return try setSummary(args)
             case .listSpaces:     return listSpaces()
             case .createSpace:    return try createSpace(args)
             case .addToSpace:     return try addToSpace(args)
@@ -60,6 +62,10 @@ final class LibraryToolExecutor: AgentToolHost {
             if let transcript, !transcript.text.isEmpty {
                 dict["spoken"] = String(transcript.text.prefix(280))
                 if let lang = transcript.language { dict["lang"] = lang }
+            }
+            if let s = storedSummary(for: url) {
+                dict["summary"] = s.fileSummary
+                dict["summaryTier"] = s.fileTier
             }
             if let addr = roots.address(for: url) { dict["dragId"] = addr.dragString }
             return dict
@@ -120,10 +126,66 @@ final class LibraryToolExecutor: AgentToolHost {
                 dict["spoken"] = String(spoken.prefix(280))
                 if let lang = transcript?.language { dict["lang"] = lang }
             }
+            if let s = storedSummary(for: url) {
+                dict["summary"] = s.fileSummary
+                dict["summaryTier"] = s.fileTier
+            }
             matches.append(dict)
             if matches.count >= limit { break }
         }
         return jsonResult(["matchCount": matches.count, "matches": matches])
+    }
+
+    /// Full transcript text per file, read passively from the on-disk cache (never transcribes).
+    private func getTranscript(_ args: [String: Any]) throws -> ToolResult {
+        let paths = try requirePaths(args, key: "paths")
+        let transcripts = paths.map { path -> [String: Any] in
+            let url = URL(fileURLWithPath: path)
+            let transcript = TranscriptCache.cachedOnDisk(for: url)
+            var dict: [String: Any] = ["path": path, "said": saidStatus(transcript)]
+            if let transcript, !transcript.text.isEmpty {
+                dict["spoken"] = transcript.text
+                if let lang = transcript.language { dict["lang"] = lang }
+            }
+            return dict
+        }
+        return jsonResult(["transcripts": transcripts])
+    }
+
+    /// Persists assistant-authored summaries into the same store the (i) popover reads, marked as
+    /// AI (tier 1) — so the work happens on the user's own Claude plan over MCP, not the paid
+    /// in-app model. Skips (and reports) entries whose file is missing or whose text is empty.
+    private func setSummary(_ args: [String: Any]) throws -> ToolResult {
+        guard let items = args["summaries"] as? [[String: Any]], !items.isEmpty else {
+            throw ToolError("summaries is required and must be a non-empty array of {path, summary}.")
+        }
+        var saved = 0
+        var skipped: [[String: Any]] = []
+        for item in items {
+            guard let path = item.string("path") else {
+                skipped.append(["path": "", "reason": "missing path"]); continue
+            }
+            guard let text = item.string("summary") else {
+                skipped.append(["path": path, "reason": "missing summary"]); continue
+            }
+            let url = URL(fileURLWithPath: path)
+            guard let key = EmbeddingStore.key(for: url) else {
+                skipped.append(["path": path, "reason": "file not found"]); continue
+            }
+            if SummaryService.shared.storeExternalSummary(text, forURL: url, key: key) {
+                saved += 1
+            } else {
+                skipped.append(["path": path, "reason": "empty after cleanup"])
+            }
+        }
+        return jsonResult(["saved": saved, "skipped": skipped])
+    }
+
+    /// The stored summary sidecar for a file, if any (passive read — does not validate the
+    /// fingerprint; the popover does that on display).
+    private func storedSummary(for url: URL) -> AssetSummary? {
+        guard let key = EmbeddingStore.key(for: url) else { return nil }
+        return SummaryStore.load(key: key)
     }
 
     /// The "said" understanding state from the on-disk transcript: no transcript yet → pending,
@@ -209,9 +271,9 @@ final class LibraryToolExecutor: AgentToolHost {
         return space
     }
 
-    private func requirePaths(_ args: [String: Any]) throws -> [String] {
-        let paths = args.stringArray("filePaths")
-        guard !paths.isEmpty else { throw ToolError("filePaths is required and must be a non-empty array.") }
+    private func requirePaths(_ args: [String: Any], key: String = "filePaths") throws -> [String] {
+        let paths = args.stringArray(key)
+        guard !paths.isEmpty else { throw ToolError("\(key) is required and must be a non-empty array.") }
         return paths
     }
 

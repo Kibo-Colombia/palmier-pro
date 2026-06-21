@@ -6,6 +6,8 @@ import Foundation
 enum LibraryToolName: String, CaseIterable, Sendable {
     case listLibrary = "list_library"
     case searchLibrary = "search_library"
+    case getTranscript = "get_transcript"
+    case setSummary = "set_summary"
     case listSpaces = "list_spaces"
     case createSpace = "create_space"
     case addToSpace = "add_to_space"
@@ -18,18 +20,39 @@ enum LibraryToolDefinitions {
     static let all: [AnthropicToolSchema] = [
         schema(
             .listLibrary,
-            "Lists the Library and what's understood about it. Each file carries: on-device visual label tokens (e.g. 'set:night'); seen (true once visually indexed); said ('speech' = transcribed spoken words, 'silent' = no audio/no speech, 'pending' = not transcribed yet); plus spoken (a transcript preview) and lang (auto-detected per clip, e.g. 'es' or 'en') when there is speech. Top-level 'understanding' counts seen/labeled/heardSpeech/silent/saidPending across the whole Library, and 'indexing' reports the live pass (phase 'seeing' = visual, 'hearing' = transcribing). Call this first. While indexing.isIndexing is true, seen/said are still filling in.",
+            "Lists the Library and what's understood about it. Each file carries: on-device visual label tokens (e.g. 'set:night'); seen (true once visually indexed); said ('speech' = transcribed spoken words, 'silent' = no audio/no speech, 'pending' = not transcribed yet); plus spoken (a transcript preview) and lang (auto-detected per clip, e.g. 'es' or 'en') when there is speech; plus summary (the caption shown in the file's (i) popover) and summaryTier (0 = local gist, 1 = AI-written) when one exists. Top-level 'understanding' counts seen/labeled/heardSpeech/silent/saidPending across the whole Library, and 'indexing' reports the live pass (phase 'seeing' = visual, 'hearing' = transcribing). Call this first. While indexing.isIndexing is true, seen/said are still filling in.",
             obj()
         ),
         schema(
             .searchLibrary,
-            "Finds Library files by filename OR spoken words (query), label tokens, and/or transcription state. All provided filters are ANDed. Use 'query' to match both the filename and what is said in the clip; use 'said' to narrow to transcribed/silent/not-yet clips. Results include said, and spoken/lang when there is speech.",
+            "Finds Library files by filename OR spoken words (query), label tokens, and/or transcription state. All provided filters are ANDed. Use 'query' to match both the filename and what is said in the clip; use 'said' to narrow to transcribed/silent/not-yet clips. Results include said, summary/summaryTier when one exists, and spoken/lang when there is speech.",
             obj(properties: [
                 "query": ["type": "string", "description": "Case-insensitive substring matched against BOTH the filename and the spoken transcript."],
                 "labels": ["type": "array", "items": ["type": "string"], "description": "Label tokens to require, e.g. ['night', 'set:beach']. A file matches a token if any of its labels contains it."],
                 "said": ["type": "string", "enum": ["speech", "silent", "pending"], "description": "Filter by transcription state: 'speech' = has spoken words, 'silent' = no audio/no speech, 'pending' = not transcribed yet."],
                 "limit": ["type": "integer", "description": "Max matches to return (default 50)."],
             ])
+        ),
+        schema(
+            .getTranscript,
+            "Returns the FULL on-device transcript text for the given Library files — list_library/search_library only include a short 'spoken' preview. Use this before set_summary so a summary reflects everything that's said. Passive read: files with no cached transcript yet come back as said='pending' (let the background indexer's 'hearing' pass finish); this never triggers transcription itself.",
+            obj(properties: [
+                "paths": ["type": "array", "items": ["type": "string"], "description": "Absolute file paths (from list_library/search_library)."],
+            ], required: ["paths"])
+        ),
+        schema(
+            .setSummary,
+            "Saves the AI summary shown in a Library file's (i) popover — for one or many files. Use this to persist summaries written by THIS assistant (on the user's own Claude plan) instead of the app's paid in-app model: read each clip's transcript (get_transcript) and labels (list_library), write a concrete one- or two-sentence, present-tense description of what the clip is about (≤240 chars, no quotes/markdown), and save it here. Stored as an AI ('sparkles', tier 1) summary that persists across launches and replaces any prior one. Re-indexing or (re)transcribing a file invalidates its summary by design, so summarize after indexing settles.",
+            obj(properties: [
+                "summaries": ["type": "array", "description": "One entry per file.", "items": [
+                    "type": "object",
+                    "properties": [
+                        "path": ["type": "string", "description": "Absolute file path (from list_library/search_library)."],
+                        "summary": ["type": "string", "description": "The caption: one or two concrete present-tense sentences, ≤240 chars, no quotes or markdown."],
+                    ],
+                    "required": ["path", "summary"],
+                ]],
+            ], required: ["summaries"])
         ),
         schema(
             .listSpaces,

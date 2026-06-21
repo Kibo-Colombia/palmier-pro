@@ -43,6 +43,18 @@ enum LibraryAgentInstructions {
         - When done, briefly report the Spaces you made and how many files each holds. The user \
           sees them appear in the sidebar.
 
+        # Summarizing the Library (on the user's own plan)
+        - Every file's (i) popover shows a one-line summary. A local gist (`summaryTier` 0) is free; \
+          a real AI caption (`summaryTier` 1) is normally a paid in-app call. You can write the AI \
+          ones yourself instead, at no extra cost to the user, with `set_summary`.
+        - Workflow: from `list_library`, target files that have speech (`said` = `speech`) and no \
+          AI summary yet (`summaryTier` missing or 0). Pull their full transcripts with \
+          `get_transcript`, then write each a concrete one- or two-sentence, present-tense caption \
+          of what the clip is about — grounded in what's said, with labels as supporting context — \
+          and persist them in one `set_summary` call (batch the array). Keep each ≤240 chars.
+        - Summarize after indexing settles; `get_transcript` returns `pending` for clips the \
+          `hearing` pass hasn't reached yet. Skip `silent` clips unless the user asks otherwise.
+
         # Voice
         Calm and concise — a sentence or two. Do the work with tools; don't narrate every step.
         """

@@ -91,6 +91,23 @@ final class SummaryService {
         }
     }
 
+    /// Persist a summary authored *outside* the app — e.g. by an MCP client running on the user's
+    /// own Claude plan (the `set_summary` Library tool), instead of a paid in-app API call. Stored
+    /// as Tier 1 with the standard fingerprint, so the (i) popover adopts it and re-indexing /
+    /// (re)transcribing still invalidates it like any other summary. Returns false on empty text.
+    @discardableResult
+    func storeExternalSummary(_ text: String, forURL url: URL, key: String) -> Bool {
+        let clean = Self.cleanLLM(text)
+        guard !clean.isEmpty else { return false }
+        let summary = AssetSummary(
+            fingerprint: Self.fingerprint(url: url, key: key),
+            fileSummary: clean, fileTier: 1, scenes: []
+        )
+        SummaryStore.save(summary, key: key)
+        memory[key] = summary
+        return true
+    }
+
     // MARK: - LLM plumbing
 
     private func makeClient() -> (any AgentClient)? {

@@ -48,6 +48,7 @@ final class ToolExecutor {
             case .analyzeReference: return try await analyzeReference(editor, args)
             case .listPresets:   return try listPresets(args)
             case .applyPreset:   return try applyPreset(editor, args)
+            case .previewPresets: return try await previewPresets(editor, args)
             case .listModels:    return listModels(args)
             case .listFolders:   return listFolders(editor)
             case .createFolder:  return try createFolder(editor, args)

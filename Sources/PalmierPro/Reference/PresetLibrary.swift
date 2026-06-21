@@ -57,6 +57,23 @@ enum PresetLibrary {
 
     static func info(_ kind: PresetKind) -> PresetInfo { catalog.first { $0.kind == kind }! }
 
+    /// Clip-relative frame that best shows the preset in a single still (for candidate previews).
+    static func previewOffset(_ kind: PresetKind, fps: Int) -> Int {
+        func f(_ s: Double) -> Int { max(0, Int((s * Double(fps)).rounded())) }
+        switch kind {
+        case .whip:      return f(0.09)
+        case .zoomIn:    return 0
+        case .flash:     return f(0.04)
+        case .dissolve:  return f(0.15)
+        case .pop:       return f(0.12)
+        case .fadeIn:    return f(0.12)
+        case .slideUp:   return f(0.14)
+        case .shake:     return f(0.06)
+        case .zoomPunch: return f(0.1)
+        case .glow:      return f(0.2)
+        }
+    }
+
     /// Realize a preset into the clip's existing keyframe tracks / grade. Mutates in place; call inside
     /// `commitClipProperty`. Frames are clip-relative offsets (track storage convention).
     static func apply(_ kind: PresetKind, to clip: inout Clip, fps: Int) {

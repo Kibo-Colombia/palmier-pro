@@ -23,6 +23,7 @@ enum ToolName: String, CaseIterable, Sendable {
     case analyzeReference = "analyze_reference"
     case listPresets = "list_presets"
     case applyPreset = "apply_preset"
+    case previewPresets = "preview_presets"
     case listModels = "list_models"
     case inspectMedia = "inspect_media"
     case inspectTimeline = "inspect_timeline"
@@ -464,6 +465,21 @@ enum ToolDefinitions {
                     "preset": ["type": "string", "description": "Preset id from list_presets, e.g. 'whip', 'zoom-in', 'flash', 'pop', 'shake', 'zoom-punch', 'glow'."],
                 ],
                 required: ["clipIds", "preset"]
+            )
+        ),
+        AgentTool(
+            name: .previewPresets,
+            description: "Renders several candidate presets on the user's OWN clip so they can pick the closest — the disambiguation step for a reference recipe's fuzzy fields (transition / caption-anim / effect). Non-destructive: the live timeline is untouched; each candidate renders on a throwaway copy. Returns one still PER candidate, in the order given (rendered at the frame that best shows each effect), plus a JSON 'candidates' list mapping image index → preset. Show these to the user, ask which is nearest, then commit it with apply_preset and refine with set_grade. Candidates must all target the same clip kind as clipId (visual vs text). Max 6 candidates. On-device, costs nothing.",
+            inputSchema: objectSchema(
+                properties: [
+                    "clipId": ["type": "string", "description": "A representative clip from the user's footage to preview the candidates on."],
+                    "presets": [
+                        "type": "array",
+                        "description": "Candidate preset ids to compare (e.g. ['whip','zoom-in','flash']). Max 6. All must match clipId's kind.",
+                        "items": ["type": "string"],
+                    ],
+                ],
+                required: ["clipId", "presets"]
             )
         ),
         AgentTool(

@@ -46,6 +46,8 @@ final class ToolExecutor {
             case .importMedia:   return try importMedia(editor, args)
             case .importReference: return try importReference(editor, args)
             case .analyzeReference: return try await analyzeReference(editor, args)
+            case .listPresets:   return try listPresets(args)
+            case .applyPreset:   return try applyPreset(editor, args)
             case .listModels:    return listModels(args)
             case .listFolders:   return listFolders(editor)
             case .createFolder:  return try createFolder(editor, args)

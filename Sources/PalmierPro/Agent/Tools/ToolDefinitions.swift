@@ -21,6 +21,8 @@ enum ToolName: String, CaseIterable, Sendable {
     case importMedia = "import_media"
     case importReference = "import_reference"
     case analyzeReference = "analyze_reference"
+    case listPresets = "list_presets"
+    case applyPreset = "apply_preset"
     case listModels = "list_models"
     case inspectMedia = "inspect_media"
     case inspectTimeline = "inspect_timeline"
@@ -438,6 +440,30 @@ enum ToolDefinitions {
                     "maxFrames": ["type": "integer", "description": "Max storyboard frames to return (default 8, max 12). One per detected shot, evenly sampled if there are more shots than this."],
                 ],
                 required: ["mediaRef"]
+            )
+        ),
+        AgentTool(
+            name: .listPresets,
+            description: "Lists the curated preset library — the small CapCut-style set for reference-driven editing and manual styling. Returns each preset as {preset, category, name, summary, appliesTo, keywords}. Categories: transition (whip, zoom-in, flash, dissolve), caption-animation (pop, fade-in, slide-up), effect (shake, zoom-punch, glow). appliesTo is 'visual' (video/image) or 'text'. Use this to pick the closest preset for a reference recipe's fuzzy fields, or to offer the user a manual menu. LUTs/looks are NOT here — that pack belongs to color grading. Apply a choice with apply_preset.",
+            inputSchema: objectSchema(
+                properties: [
+                    "category": ["type": "string", "description": "Optional filter: transition | caption-animation | effect."],
+                ]
+            )
+        ),
+        AgentTool(
+            name: .applyPreset,
+            description: "Applies a preset from the library (see list_presets) to one or more clips in a single undoable action. The preset expands into Koma's existing keyframe tracks (position/scale/opacity) or color grade — no new engine. Transitions and effects apply to VISUAL clips (video/image); caption animations apply to TEXT clips; mismatches are rejected. Transitions are per-clip 'in' animations at the cut. Verify the result with inspect_timeline. The color 'glow' preset is approximate (grade-based) until the LUT/look pack lands. Undoable.",
+            inputSchema: objectSchema(
+                properties: [
+                    "clipIds": [
+                        "type": "array",
+                        "description": "Clip IDs to apply the preset to. The preset applies to every clip in this list.",
+                        "items": ["type": "string"],
+                    ],
+                    "preset": ["type": "string", "description": "Preset id from list_presets, e.g. 'whip', 'zoom-in', 'flash', 'pop', 'shake', 'zoom-punch', 'glow'."],
+                ],
+                required: ["clipIds", "preset"]
             )
         ),
         AgentTool(

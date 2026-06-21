@@ -22,9 +22,13 @@ final class LibraryIndexer {
 
     /// Candidate spoken languages for the auto-detect transcription pass. Order is irrelevant —
     /// each clip is scored independently and the best-fitting language wins. Defaults to the
-    /// creator's mix (Spanish + English); a single entry skips detection and forces that locale.
+    /// creator's mix: Colombian Spanish + US English. We name the country (`es-CO`) rather than the
+    /// generic `es-419`, because Apple's on-device speech models are country-specific — a regionless
+    /// code has no exact match and falls back to whatever Spanish variant Apple lists first (which
+    /// is why early clips were tagged `es-CL`). If `es-CO` isn't installed, `matchLocale` still
+    /// degrades to the nearest Spanish. A single entry skips detection and forces that locale.
     var transcriptionLocales: [Locale] = [
-        Locale(identifier: "es-419"),
+        Locale(identifier: "es-CO"),
         Locale(identifier: "en-US"),
     ]
 

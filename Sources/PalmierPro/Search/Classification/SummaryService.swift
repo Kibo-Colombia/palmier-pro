@@ -1,14 +1,16 @@
 import Foundation
 
 /// Per-file human summary for the (i) popover (M4, "The Organizer"). A *product* of the
-/// understanding + organization layers — it only reads what those already cached, never triggering
-/// transcription or classification itself.
+/// understanding + organization layers. Tier 0 only reads what those already cached and never
+/// triggers work itself; the opt-in Tier 1 may run on-device transcription on demand so its
+/// caption is grounded in what's actually *said*, not just what's seen.
 ///
 /// - **Tier 0** (always-on, on-device): a gist of the cached transcript ("said"), else the
 ///   strongest classification tokens ("seen"). Free, offline, no account.
 /// - **Tier 1** (opt-in, never auto-runs): an LLM (Haiku) synthesizes tags + transcript + a few
-///   key frames into a real sentence. Gated behind a key/subscription; persisted so the paid call
-///   happens once per clip.
+///   key frames into a real sentence. If the clip hasn't been transcribed yet, it transcribes it
+///   first on-device (free, no account) so speech drives the caption. Gated behind a
+///   key/subscription; persisted so the paid call happens once per clip.
 @Observable
 @MainActor
 final class SummaryService {
@@ -54,7 +56,8 @@ final class SummaryService {
         guard canUseLLM, let client = makeClient() else { return nil }
 
         let tokens = topTokens(key: key)
-        let transcript = transcriptExcerpt(url: url)
+        // Grounds the caption in speech — transcribes on-device now if not already cached.
+        let transcript = await transcriptExcerpt(forURL: url)
         let richTranscript = (transcript?.count ?? 0) >= 40
         // Frames carry the most signal for visual footage; fewer when there's real speech.
         let frames = await KeyframeThumbnailCache.shared.keyframes(forURL: url, key: key) ?? []
@@ -102,9 +105,12 @@ final class SummaryService {
     }
 
     private static let llmSystem = """
-    You caption video clips for an editor's media library. Given tags, a transcript excerpt, \
-    and/or key frames, write ONE concrete sentence (max 140 characters) describing what the clip \
-    shows — subject, action, setting. Present tense, no preamble, no quotes, no markdown.
+    You caption video clips for an editor's media library. You're given tags, a transcript \
+    excerpt (what's said), and/or key frames (what's seen). Describe what the clip is actually \
+    about — subject, action, setting, and topic. When a transcript is present, ground the \
+    description in what's said; the frames and tags are supporting context. Write one concrete \
+    sentence, or two short ones when the clip's spoken content warrants the detail (max ~220 \
+    characters). Present tense, no preamble, no quotes, no markdown.
     """
 
     private func topTokens(key: String) -> [String] {
@@ -114,10 +120,27 @@ final class SummaryService {
             .map { String($0.token.drop { $0 != ":" }.dropFirst()) }
     }
 
-    private func transcriptExcerpt(url: URL) -> String? {
-        guard let text = TranscriptCache.cachedOnDisk(for: url)?.text
-            .trimmingCharacters(in: .whitespacesAndNewlines), text.count >= 8 else { return nil }
-        return String(text.prefix(600))
+    /// Max transcript characters fed to the LLM. Generous so a talky clip is captioned from its
+    /// content, not a fragment; Haiku reads this cheaply.
+    private static let transcriptBudget = 2000
+
+    /// The clip's transcript, capped for the prompt. A cache hit returns instantly; otherwise this
+    /// runs on-device transcription (free, no account) and caches it, so the caption reflects what
+    /// the clip actually says. Returns nil for silent clips, images, and transcription failures.
+    private func transcriptExcerpt(forURL url: URL) async -> String? {
+        guard let type = ClipType(fileExtension: url.pathExtension.lowercased()),
+              type == .video || type == .audio else {
+            return capped(TranscriptCache.cachedOnDisk(for: url)?.text)
+        }
+        let result = try? await TranscriptCache.shared.transcript(
+            for: url, isVideo: type == .video, range: nil
+        )
+        return capped(result?.text)
+    }
+
+    private func capped(_ raw: String?) -> String? {
+        guard let text = raw?.trimmingCharacters(in: .whitespacesAndNewlines), text.count >= 8 else { return nil }
+        return String(text.prefix(Self.transcriptBudget))
     }
 
     /// First / middle / last (deduped, in order) up to `max`.
@@ -136,7 +159,7 @@ final class SummaryService {
         var t = text.split(whereSeparator: \.isNewline).joined(separator: " ")
         t = t.trimmingCharacters(in: .whitespaces)
         if t.hasPrefix("\""), t.hasSuffix("\""), t.count > 1 { t = String(t.dropFirst().dropLast()) }
-        return String(t.prefix(180)).trimmingCharacters(in: .whitespaces)
+        return String(t.prefix(240)).trimmingCharacters(in: .whitespaces)
     }
 
     /// The inputs a summary is derived from — re-index / re-classify / transcribe regenerates it.

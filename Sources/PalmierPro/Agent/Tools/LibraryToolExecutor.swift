@@ -212,12 +212,14 @@ final class LibraryToolExecutor: AgentToolHost {
     /// Top label tokens for a file, read passively from the on-disk sidecar (no model inference —
     /// mirrors how `SummaryService` reads labels on the home screen). Empty until the file indexes.
     private func labels(for url: URL) -> [String] {
-        guard let key = EmbeddingStore.key(for: url),
-              let file = LabelStore.load(key: key)?.file else { return [] }
-        return file
+        let key = EmbeddingStore.key(for: url)
+        let visual = key.flatMap { LabelStore.load(key: $0)?.file } ?? []
+        let merged = LabelMerge.merged(visual: visual, url: url, key: key)
+        let seen = merged.filter { !HeardFacets.isHeard($0.token) }
             .sorted { ($0.coverage * Double($0.peak)) > ($1.coverage * Double($1.peak)) }
-            .prefix(6)
-            .map(\.token)
+            .prefix(6).map(\.token)
+        let heard = merged.filter { HeardFacets.isHeard($0.token) }.map(\.token)
+        return Array(seen) + heard   // seen (top 6) + heard (say:/topic:)
     }
 
     // MARK: - Spaces

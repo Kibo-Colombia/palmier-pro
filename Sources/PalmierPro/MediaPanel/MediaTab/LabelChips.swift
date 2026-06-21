@@ -74,18 +74,10 @@ struct LabelChips: View {
                 }
                 .frame(maxWidth: 260, alignment: .leading)
             }
-            if !labels.isEmpty {
-                HStack(spacing: AppTheme.Spacing.xs) {
-                    ForEach(labels.prefix(maxChips), id: \.token) { label in
-                        Text(label.value)
-                            .font(.system(size: AppTheme.FontSize.xs, weight: .medium))
-                            .foregroundStyle(AppTheme.Text.primaryColor)
-                            .padding(.horizontal, AppTheme.Spacing.sm)
-                            .padding(.vertical, AppTheme.Spacing.xxs)
-                            .background(Color.primary.opacity(0.08), in: .capsule)
-                    }
-                }
-            }
+            let seen = labels.filter { !HeardFacets.isHeard($0.token) }
+            let heard = labels.filter { HeardFacets.isHeard($0.token) }
+            if !seen.isEmpty { chipRow("Seen", seen) }
+            if !heard.isEmpty { chipRow("Heard", heard) }
             if showSummarize {
                 Button(action: summarize) {
                     HStack(spacing: AppTheme.Spacing.xs) {
@@ -105,6 +97,26 @@ struct LabelChips: View {
         }
         .padding(AppTheme.Spacing.sm)
         .frame(maxWidth: 280, alignment: .leading)
+    }
+
+    /// A labelled row of chips — "Seen" (visual facets) or "Heard" (transcript facets).
+    @ViewBuilder
+    private func chipRow(_ title: String, _ items: [FileLabel]) -> some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.xxs) {
+            Text(title)
+                .font(.system(size: AppTheme.FontSize.xxs, weight: .semibold))
+                .foregroundStyle(AppTheme.Text.tertiaryColor)
+            HStack(spacing: AppTheme.Spacing.xs) {
+                ForEach(items.prefix(maxChips), id: \.token) { label in
+                    Text(label.value)
+                        .font(.system(size: AppTheme.FontSize.xs, weight: .medium))
+                        .foregroundStyle(AppTheme.Text.primaryColor)
+                        .padding(.horizontal, AppTheme.Spacing.sm)
+                        .padding(.vertical, AppTheme.Spacing.xxs)
+                        .background(Color.primary.opacity(0.08), in: .capsule)
+                }
+            }
+        }
     }
 
     /// Offer the LLM tier when it's available and we don't already have an LLM summary.

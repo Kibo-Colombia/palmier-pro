@@ -398,7 +398,7 @@ struct MediaTab: View {
                 Button { setGroupBy(nil) } label: {
                     Label("Folder", systemImage: groupByFacet == nil ? "checkmark" : "")
                 }
-                ForEach(Vocabulary.current().facets, id: \.id) { facet in
+                ForEach(groupingFacets, id: \.id) { facet in
                     Button { setGroupBy(facet.id) } label: {
                         Label(facetTitle(facet.id), systemImage: groupByFacet == facet.id ? "checkmark" : "")
                     }
@@ -433,7 +433,7 @@ struct MediaTab: View {
             if !labels.isEmpty {
                 Divider()
                 // One section per facet, so e.g. all act:* tokens sit under "Action".
-                ForEach(Vocabulary.current().facets, id: \.id) { facet in
+                ForEach(groupingFacets, id: \.id) { facet in
                     let facetLabels = labels.filter { $0.hasPrefix("\(facet.id):") }
                     if !facetLabels.isEmpty {
                         Section(facetTitle(facet.id)) {
@@ -544,6 +544,10 @@ struct MediaTab: View {
         String(token.drop { $0 != ":" }.dropFirst())
     }
 
+    /// Seen (visual) facets + heard (transcript) facets. Heard facets are NOT part of the SigLIP
+    /// vocabulary/fingerprint — appended here only so the menus can group by them.
+    var groupingFacets: [FacetDef] { Vocabulary.current().facets + HeardFacets.defs }
+
     /// Human-readable facet name for the "Group by" menu and section headers.
     func facetTitle(_ id: String) -> String {
         switch id {
@@ -553,6 +557,8 @@ struct MediaTab: View {
         case "shot": "Framing"
         case "mood": "Mood"
         case "use": "Usability"
+        case "topic": "Topic (heard)"
+        case "say": "Speech (heard)"
         default: id.capitalized
         }
     }

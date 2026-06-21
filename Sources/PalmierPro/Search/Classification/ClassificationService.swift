@@ -33,7 +33,8 @@ final class ClassificationService {
     /// File-level labels for a card. Returns nil while the model isn't ready or a classify is
     /// already running, so the caller simply shows no chips yet.
     func fileLabels(forURL url: URL, key: String) async -> [FileLabel]? {
-        await assetLabels(forURL: url, key: key)?.file
+        guard await assetLabels(forURL: url, key: key) != nil else { return nil }
+        return fileLabelsByPath[url.path]   // seen + heard, fused (record() merged them)
     }
 
     /// Full label record (scenes + file). M4 consumes the per-scene tokens.
@@ -46,14 +47,14 @@ final class ClassificationService {
         let fingerprint = vocab.fingerprint(model: embedder.spec.model, modelVersion: embedder.spec.version)
 
         if let cached = memory[key], cached.fingerprint == fingerprint {
-            record(cached, path: url.path)
+            record(cached, url: url, key: key)
             return cached
         }
 
         // Valid sidecar on disk → adopt it.
         if let disk = LabelStore.load(key: key), disk.fingerprint == fingerprint {
             memory[key] = disk
-            record(disk, path: url.path)
+            record(disk, url: url, key: key)
             return disk
         }
 
@@ -77,7 +78,7 @@ final class ClassificationService {
 
         LabelStore.save(result, key: key)
         memory[key] = result
-        record(result, path: url.path)
+        record(result, url: url, key: key)
         Log.search.notice("classified \(url.lastPathComponent) scenes=\(result.scenes.count) fileLabels=\(result.file.count) top=[\(result.file.prefix(4).map(\.token).joined(separator: ", "))]")
         return result
     }
@@ -92,9 +93,10 @@ final class ClassificationService {
         }
     }
 
-    private func record(_ labels: AssetLabels, path: String) {
-        tokensByPath[path] = Set(labels.file.map(\.token))
-        fileLabelsByPath[path] = labels.file
+    private func record(_ labels: AssetLabels, url: URL, key: String) {
+        let merged = LabelMerge.merged(visual: labels.file, url: url, key: key)
+        tokensByPath[url.path] = Set(merged.map(\.token))
+        fileLabelsByPath[url.path] = merged
     }
 
     private func ensureLabelVectors(vocab: Vocabulary, embedder: VisualEmbedder, fingerprint: String) async -> LabelVectors? {

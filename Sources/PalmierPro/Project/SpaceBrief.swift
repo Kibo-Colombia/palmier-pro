@@ -57,7 +57,8 @@ enum SpaceBrief {
         let index: Int
         let summary: String?
         let summaryIsAI: Bool
-        let fileLabels: [String]          // "shot:wide", ranked
+        let fileLabels: [String]          // seen (visual, fused), ranked
+        let heardLabels: [String]         // heard (transcript): say:, topic:
         let scenes: [SceneLabels]         // timecoded shot labels
         let transcript: TranscriptionResult?
 
@@ -66,9 +67,11 @@ enum SpaceBrief {
             self.index = index
             let key = EmbeddingStore.key(for: url)
             let labels = key.flatMap { LabelStore.load(key: $0) }
-            self.fileLabels = (labels?.file ?? [])
+            let merged = LabelMerge.merged(visual: labels?.file ?? [], url: url, key: key)
+            self.fileLabels = merged.filter { !HeardFacets.isHeard($0.token) }
                 .sorted { ($0.coverage * Double($0.peak)) > ($1.coverage * Double($1.peak)) }
                 .map(\.token)
+            self.heardLabels = merged.filter { HeardFacets.isHeard($0.token) }.map(\.token)
             self.scenes = (labels?.scenes ?? []).sorted { $0.shotStart < $1.shotStart }
             let summary = key.flatMap { SummaryStore.load(key: $0) }
             self.summary = summary?.fileSummary
@@ -91,6 +94,9 @@ enum SpaceBrief {
         /// Approx duration from the last shot's end (avoids loading the asset).
         var approxDuration: Double? { scenes.last?.shotEnd }
 
+        /// The say: content-type value (intro/explainer/story/silent), if classified.
+        var sayValue: String? { heardLabels.first { $0.hasPrefix("say:") }.map(Self.value) }
+
         static func value(_ token: String) -> String { token.split(separator: ":").last.map(String.init) ?? token }
     }
 
@@ -108,7 +114,10 @@ enum SpaceBrief {
             out += "**Summary:** \(s)\(d.summaryIsAI ? " ✨" : "")\n\n"
         }
         if !d.fileLabels.isEmpty {
-            out += "**Labels:** " + d.fileLabels.prefix(8).map { "`\($0)`" }.joined(separator: " · ") + "\n\n"
+            out += "**Seen:** " + d.fileLabels.prefix(8).map { "`\($0)`" }.joined(separator: " · ") + "\n\n"
+        }
+        if !d.heardLabels.isEmpty {
+            out += "**Heard:** " + d.heardLabels.map { "`\($0)`" }.joined(separator: " · ") + "\n\n"
         }
 
         let timeline = timelineLines(d)
@@ -158,7 +167,8 @@ enum SpaceBrief {
         out += "|---|------|-----------|--------|-------|\n"
         for (d, plan) in zip(dossiers, plans) {
             let labels = d.fileLabels.prefix(4).map(Dossier.value).joined(separator: ", ")
-            out += "| \(String(format: "%02d", d.index)) | `\(plan.mediaName)` | \(escapeCell(truncate(d.oneLiner, 80))) | \(escapeCell(labels)) | \(d.said) |\n"
+            let audio = d.sayValue.map { "\(d.said) · \($0)" } ?? d.said
+            out += "| \(String(format: "%02d", d.index)) | `\(plan.mediaName)` | \(escapeCell(truncate(d.oneLiner, 80))) | \(escapeCell(labels)) | \(escapeCell(audio)) |\n"
         }
 
         out += "\n## For the editor\n\n"

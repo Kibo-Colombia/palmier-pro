@@ -106,7 +106,7 @@ struct GradeCompositorTests {
     private func model(_ trackID: CMPersistentTrackID, natSize: CGSize, renderSize: CGSize, clip: Clip) -> GradeRenderModel {
         GradeRenderModel(fps: 30, renderSize: renderSize, tracks: [
             GradeTrackRender(trackID: trackID, hidden: false,
-                             clips: [GradeClipRender(clip: clip, natSize: natSize, preferredTransform: .identity)])
+                             clips: [GradeClipRender(clip: clip, natSize: natSize, preferredTransform: .identity, cube: nil)])
         ])
     }
 

@@ -13,15 +13,21 @@ import Foundation
 ///   tint        magenta(+)/green(−) neutral 0   range −100…100 (CITemperatureAndTint)
 ///   intensity   global wet/dry mix neutral 1    range  0…1
 struct ColorGrade: Codable, Sendable, Equatable {
+    // Base look (a 3D LUT). nil = no look; cube data is resolved at render time by LUTStore.
+    var lut: String? = nil          // bundled look id (e.g. "teal-orange") OR imported .cube asset id
+    var lookIntensity: Double = 1   // wet/dry of the LUT alone (distinct from `intensity`, below)
+
     var exposure: Double = 0
     var brightness: Double = 0
     var contrast: Double = 1
     var saturation: Double = 1
     var temperature: Double = 0
     var tint: Double = 0
-    var intensity: Double = 1
+    var intensity: Double = 1       // wet/dry of the WHOLE grade (look + minor channels)
 
     init(
+        lut: String? = nil,
+        lookIntensity: Double = 1,
         exposure: Double = 0,
         brightness: Double = 0,
         contrast: Double = 1,
@@ -30,6 +36,8 @@ struct ColorGrade: Codable, Sendable, Equatable {
         tint: Double = 0,
         intensity: Double = 1
     ) {
+        self.lut = lut
+        self.lookIntensity = lookIntensity
         self.exposure = exposure
         self.brightness = brightness
         self.contrast = contrast
@@ -42,18 +50,20 @@ struct ColorGrade: Codable, Sendable, Equatable {
     /// True when the grade changes nothing — lets the render path keep the stock
     /// (built-in compositor) fast path and skip the GradeCompositor entirely.
     var isIdentity: Bool {
-        exposure == 0 && brightness == 0 && contrast == 1 && saturation == 1
+        lut == nil && exposure == 0 && brightness == 0 && contrast == 1 && saturation == 1
             && temperature == 0 && tint == 0
     }
 
     private enum CodingKeys: String, CodingKey {
-        case exposure, brightness, contrast, saturation, temperature, tint, intensity
+        case lut, lookIntensity, exposure, brightness, contrast, saturation, temperature, tint, intensity
     }
 
     // Forward/back-compatible decode: any missing channel falls back to its neutral default,
     // so older projects (no grade) and partial writes load clean.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.lut           = (try? c.decodeIfPresent(String.self, forKey: .lut)) ?? nil
+        self.lookIntensity = (try? c.decode(Double.self, forKey: .lookIntensity)) ?? 1
         self.exposure    = (try? c.decode(Double.self, forKey: .exposure)) ?? 0
         self.brightness  = (try? c.decode(Double.self, forKey: .brightness)) ?? 0
         self.contrast    = (try? c.decode(Double.self, forKey: .contrast)) ?? 1
@@ -67,6 +77,8 @@ struct ColorGrade: Codable, Sendable, Equatable {
 extension ColorGrade: KeyframeInterpolatable {
     static func keyframeInterpolate(_ a: ColorGrade, _ b: ColorGrade, t: Double) -> ColorGrade {
         ColorGrade(
+            lut:          a.lut,    // hold the look id — a LUT can't cross-fade; only its strength does
+            lookIntensity: Double.keyframeInterpolate(a.lookIntensity, b.lookIntensity, t: t),
             exposure:    Double.keyframeInterpolate(a.exposure,    b.exposure,    t: t),
             brightness:  Double.keyframeInterpolate(a.brightness,  b.brightness,  t: t),
             contrast:    Double.keyframeInterpolate(a.contrast,    b.contrast,    t: t),

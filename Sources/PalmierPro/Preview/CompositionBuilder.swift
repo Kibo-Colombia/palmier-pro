@@ -211,7 +211,8 @@ enum CompositionBuilder {
             clipNaturalSizes: clipNaturalSizes,
             clipTransforms: clipTransforms,
             compositionDuration: composition.duration,
-            renderSize: renderSize
+            renderSize: renderSize,
+            resolveURL: resolveURL
         )
 
         return CompositionResult(
@@ -358,7 +359,8 @@ enum CompositionBuilder {
         clipNaturalSizes: [String: CGSize] = [:],
         clipTransforms: [String: CGAffineTransform] = [:],
         compositionDuration: CMTime,
-        renderSize: CGSize
+        renderSize: CGSize,
+        resolveURL: (String) -> URL? = { _ in nil }   // resolves imported .cube look ids; bundled looks need no url
     ) -> (audioMix: AVMutableAudioMix, videoComposition: AVVideoComposition) {
         let timescale = CMTimeScale(timeline.fps)
 
@@ -445,7 +447,8 @@ enum CompositionBuilder {
             clipNaturalSizes: clipNaturalSizes,
             clipTransforms: clipTransforms,
             compositionDuration: compositionDuration,
-            renderSize: renderSize
+            renderSize: renderSize,
+            resolveURL: resolveURL
         ) {
             vcConfig.customVideoCompositorClass = GradeCompositor.self
             vcConfig.instructions = [gradeInstruction]
@@ -465,7 +468,8 @@ enum CompositionBuilder {
         clipNaturalSizes: [String: CGSize],
         clipTransforms: [String: CGAffineTransform],
         compositionDuration: CMTime,
-        renderSize: CGSize
+        renderSize: CGSize,
+        resolveURL: (String) -> URL?
     ) -> GradeInstruction? {
         var tracks: [GradeTrackRender] = []
         var anyGrade = false
@@ -478,10 +482,12 @@ enum CompositionBuilder {
                 .filter { $0.mediaType != .text }
                 .filter { clipIds?.contains($0.id) ?? true }
                 .map { clip in
-                    GradeClipRender(
+                    let lutId = clip.grade.lut ?? clip.gradeTrack?.keyframes.lazy.compactMap { $0.value.lut }.first
+                    return GradeClipRender(
                         clip: clip,
                         natSize: clipNaturalSizes[clip.id] ?? mapping.naturalSize,
-                        preferredTransform: clipTransforms[clip.id] ?? .identity
+                        preferredTransform: clipTransforms[clip.id] ?? .identity,
+                        cube: lutId.flatMap { LUTStore.shared.cube(for: $0, resolveURL: resolveURL) }
                     )
                 }
             if renders.contains(where: { $0.clip.hasNonIdentityGrade }) { anyGrade = true }

@@ -11,6 +11,10 @@ enum ToolName: String, CaseIterable, Sendable {
     case setClipProperties = "set_clip_properties"
     case setKeyframes = "set_keyframes"
     case setGrade = "set_grade"
+    case applyLook = "apply_look"
+    case listLooks = "list_looks"
+    case importLook = "import_look"
+    case autoColor = "auto_color"
     case splitClip = "split_clip"
     case addTexts = "add_texts"
     case addCaptions = "add_captions"
@@ -248,6 +252,54 @@ enum ToolDefinitions {
                     "tint": ["type": "number", "description": "Magenta(+)/green(−), neutral 0, range −100…100."],
                     "intensity": ["type": "number", "description": "Global wet/dry mix of the grade, neutral 1, range 0…1."],
                     "reset": ["type": "boolean", "description": "Reset the grade to neutral before applying any channels above."],
+                ],
+                required: ["clipIds"]
+            )
+        ),
+        AgentTool(
+            name: .applyLook,
+            description: "Apply a one-tap color 'look' (a LUT) to one or more clips — the base creative grade, with set_grade's channels riding on top. Call list_looks first to see available looks (the bundled pack plus any user-imported .cube files). The look renders live in the preview AND bakes into export; verify with inspect_timeline. Single undoable action.\n\nintensity is the look's own strength (0 = off, 1 = full). Set reset:true to remove the look. Unknown look ids are rejected. Audio clips are rejected.",
+            inputSchema: objectSchema(
+                properties: [
+                    "clipIds": [
+                        "type": "array",
+                        "description": "Clip IDs to apply the look to.",
+                        "items": ["type": "string"],
+                    ],
+                    "look": ["type": "string", "description": "A look id from list_looks (bundled e.g. \"teal-orange\", or an imported .cube asset id). Omit only with reset:true."],
+                    "intensity": ["type": "number", "description": "Look strength, neutral 1, range 0…1."],
+                    "reset": ["type": "boolean", "description": "Remove the look (clears the LUT) instead of applying one."],
+                ],
+                required: ["clipIds"]
+            )
+        ),
+        AgentTool(
+            name: .listLooks,
+            description: "List the color looks available to apply_look: the bundled curated pack (Cinematic, Warm, Teal·Orange, Film, Moody, B&W) and any user-imported .cube LUTs. Returns each look's id, name, and a short description. Read-only.",
+            inputSchema: objectSchema()
+        ),
+        AgentTool(
+            name: .importLook,
+            description: "Import a `.cube` 3D LUT file as a reusable custom look. The file is validated and copied into the app's look library, then becomes available to apply_look (and shows in list_looks) by the returned id. Imported looks persist across projects and restarts. Rejects anything that isn't a valid 3D .cube LUT.",
+            inputSchema: objectSchema(
+                properties: [
+                    "path": ["type": "string", "description": "Absolute path to a .cube file."],
+                    "name": ["type": "string", "description": "Optional display name (defaults to the file name)."],
+                ],
+                required: ["path"]
+            )
+        ),
+        AgentTool(
+            name: .autoColor,
+            description: "Auto-correct exposure and white balance on one or more clips in one undoable action (instant, on-device, no AI cost). Analyzes each clip's own footage and derives a primary grade (exposure/contrast/saturation + temperature/tint to neutralize a color cast), then applies it with set_grade's channels so you can nudge afterward. The applied values are echoed back. Audio clips are rejected.\n\nFor a stylized auto-grade toward a mood, instead look at the frame with inspect_timeline, then pick a look with apply_look and fine-tune with set_grade.",
+            inputSchema: objectSchema(
+                properties: [
+                    "clipIds": [
+                        "type": "array",
+                        "description": "Clip IDs to auto-color.",
+                        "items": ["type": "string"],
+                    ],
+                    "intensity": ["type": "number", "description": "Strength of the derived correction, neutral 1, range 0…1 (scales the grade's wet/dry)."],
                 ],
                 required: ["clipIds"]
             )

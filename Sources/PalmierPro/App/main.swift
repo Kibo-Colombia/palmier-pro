@@ -3,6 +3,7 @@ import AppKit
 Log.bootstrap()
 Telemetry.start()
 BundledFonts.register()
+LUTStore.shared.warm()
 AccountService.shared.configure()
 ModelCatalog.shared.configure()
 

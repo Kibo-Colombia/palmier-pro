@@ -23,6 +23,7 @@ struct GradeClipRender: Sendable {
     let clip: Clip                          // Sendable; provides transformAt/cropAt/opacityAt/gradeAt
     let natSize: CGSize                     // display (oriented) size — matches CompositionBuilder.affineTransform input
     let preferredTransform: CGAffineTransform
+    let cube: LUTCube?                      // resolved at instruction-build time so the compositor never touches disk
 }
 
 struct GradeTrackRender: Sendable {
@@ -68,6 +69,11 @@ final class GradeCompositor: NSObject, AVVideoCompositing {
     // A single Metal-backed CIContext shared across all requests (CIContext is thread-safe for rendering).
     private static let ciContext = CIContext(options: [.cacheIntermediates: false])
 
+    // Creative LUTs (and our synthesized looks) are authored in gamma-encoded sRGB. Telling
+    // CIColorCubeWithColorSpace to sample in sRGB stops CI from converting to linear light first,
+    // which would wash the look out.
+    static let lutColorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+
     let sourcePixelBufferAttributes: [String: any Sendable]? = [
         kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
     ]
@@ -101,7 +107,7 @@ final class GradeCompositor: NSObject, AVVideoCompositing {
                 let sourceHeight = img.extent.height
 
                 // 1. Grade in the clip's own space (before geometry/opacity), per the chosen render order.
-                img = Self.applyGrade(cr.clip.gradeAt(frame: frame), to: img)
+                img = Self.applyGrade(cr.clip.gradeAt(frame: frame), cube: cr.cube, to: img)
 
                 // 2. Crop (source space, top-left) → convert to CI bottom-left and clip.
                 let crop = cr.clip.cropAt(frame: frame)
@@ -156,9 +162,23 @@ final class GradeCompositor: NSObject, AVVideoCompositing {
 
     /// The primary-correction CIFilter chain. Identity grade is a no-op passthrough.
     /// Order: exposure → color controls → temperature/tint → intensity (wet/dry) mix.
-    static func applyGrade(_ grade: ColorGrade, to image: CIImage) -> CIImage {
+    static func applyGrade(_ grade: ColorGrade, cube: LUTCube?, to image: CIImage) -> CIImage {
         guard !grade.isIdentity else { return image }
         var img = image
+
+        // LUT base look first — the minor channels below ride on top of it. Its own lookIntensity
+        // mixes the cube result back over the ungraded image.
+        if grade.lut != nil, let cube {
+            let looked = img.applyingFilter("CIColorCubeWithColorSpace", parameters: [
+                "inputCubeDimension": cube.dimension,
+                "inputCubeData": cube.data,
+                "inputColorSpace": lutColorSpace,
+            ]).cropped(to: img.extent)
+            let li = CGFloat(max(0, min(1, grade.lookIntensity)))
+            img = li >= 1 ? looked
+                : looked.applyingFilter("CIColorMatrix",
+                    parameters: ["inputAVector": CIVector(x: 0, y: 0, z: 0, w: li)]).composited(over: img)
+        }
 
         if grade.exposure != 0 {
             img = img.applyingFilter("CIExposureAdjust", parameters: ["inputEV": grade.exposure])

@@ -196,7 +196,8 @@ final class VideoEngine {
             clipNaturalSizes: clipNaturalSizes,
             clipTransforms: clipTransforms,
             compositionDuration: compositionDuration,
-            renderSize: CGSize(width: editor.timeline.width, height: editor.timeline.height)
+            renderSize: CGSize(width: editor.timeline.width, height: editor.timeline.height),
+            resolveURL: { editor.mediaResolver.resolveURL(for: $0) }
         )
         currentItem.audioMix = audioMix
         currentItem.videoComposition = videoComposition

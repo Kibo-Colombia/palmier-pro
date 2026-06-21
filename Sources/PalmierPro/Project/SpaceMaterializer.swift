@@ -13,16 +13,56 @@ import Foundation
 @MainActor
 enum SpaceMaterializer {
     enum Mode: Sendable { case symlink, copy }
-    struct Result: Sendable { let directory: URL; let written: Int; let skipped: Int }
 
-    static func materialize(_ space: Space, mode: Mode, into destination: URL) async throws -> Result {
-        let files = uniqueFiles(in: space)
+    /// Editor-handoff extras layered on top of a plain materialize: write a per-clip `.md` +
+    /// `_SPACE.md` manifest (`writeBriefs`), and give the copies human-readable names derived from
+    /// their summary/labels (`renameToDescription`). Originals are never touched either way.
+    struct Options: Sendable {
+        var writeBriefs = false
+        var renameToDescription = false
+        static let plain = Options()
+        static let editorHandoff = Options(writeBriefs: true, renameToDescription: true)
+    }
+
+    struct Result: Sendable { let directory: URL; let written: Int; let skipped: Int; let briefs: Int }
+
+    static func materialize(
+        _ space: Space, mode: Mode, into destination: URL, options: Options = .plain
+    ) async throws -> Result {
         let dirName = folderName(space)
+
+        // When briefs are requested we drive naming + docs off the precomputed package, so each
+        // clip and its `.md` share a base. Otherwise fall back to the original-name path.
+        if options.writeBriefs {
+            let files = uniqueFiles(in: space)
+            let package = SpaceBrief.build(spaceName: space.name, files: files, rename: options.renameToDescription)
+            return try await Task.detached(priority: .userInitiated) {
+                let fm = FileManager.default
+                let dir = try freshDirectory(dirName, in: destination, fm: fm)
+                var written = 0, skipped = 0, briefs = 0
+                for plan in package.plans {
+                    let media = dir.appendingPathComponent(plan.mediaName)
+                    do {
+                        switch mode {
+                        case .symlink: try fm.createSymbolicLink(at: media, withDestinationURL: plan.source)
+                        case .copy:    try fm.copyItem(at: plan.source, to: media)
+                        }
+                        written += 1
+                        let doc = dir.appendingPathComponent(plan.docName)
+                        if (try? plan.markdown.write(to: doc, atomically: true, encoding: .utf8)) != nil { briefs += 1 }
+                    } catch {
+                        skipped += 1
+                    }
+                }
+                try? package.manifest.write(to: dir.appendingPathComponent(package.manifestName), atomically: true, encoding: .utf8)
+                return Result(directory: dir, written: written, skipped: skipped, briefs: briefs)
+            }.value
+        }
+
+        let files = uniqueFiles(in: space)
         return try await Task.detached(priority: .userInitiated) {
             let fm = FileManager.default
-            let dir = destination.appendingPathComponent(dirName, isDirectory: true)
-            if fm.fileExists(atPath: dir.path) { try fm.removeItem(at: dir) }
-            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            let dir = try freshDirectory(dirName, in: destination, fm: fm)
             var written = 0, skipped = 0
             for file in files {
                 let dest = uniqueDestination(for: file, in: dir, fm: fm)
@@ -36,8 +76,16 @@ enum SpaceMaterializer {
                     skipped += 1
                 }
             }
-            return Result(directory: dir, written: written, skipped: skipped)
+            return Result(directory: dir, written: written, skipped: skipped, briefs: 0)
         }.value
+    }
+
+    /// The Space's output folder, wiped and recreated — it's a disposable, reproducible mirror.
+    private nonisolated static func freshDirectory(_ dirName: String, in destination: URL, fm: FileManager) throws -> URL {
+        let dir = destination.appendingPathComponent(dirName, isDirectory: true)
+        if fm.fileExists(atPath: dir.path) { try fm.removeItem(at: dir) }
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
     }
 
     /// Distinct source files referenced by the Space, in first-seen order — a symlink/copy is

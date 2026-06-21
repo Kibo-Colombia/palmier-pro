@@ -15,6 +15,12 @@ struct SpaceDetailView: View {
     @State private var isTargeted = false
     @State private var editingName = ""
     @FocusState private var nameFocused: Bool
+    /// Sticks across exports: whether the editor-handoff package renames copies to readable names.
+    @AppStorage("space.renameForEditor") private var renameForEditor = true
+
+    private var handoffOptions: SpaceMaterializer.Options {
+        SpaceMaterializer.Options(writeBriefs: true, renameToDescription: renameForEditor)
+    }
 
     private let columns = [GridItem(.adaptive(minimum: 160, maximum: 200), spacing: AppTheme.Spacing.lg)]
 
@@ -115,6 +121,18 @@ struct SpaceDetailView: View {
                     Label("Export Copies…", systemImage: "doc.on.doc")
                 }
                 .disabled(space.items.isEmpty)
+
+                Divider()
+
+                Section("Editor Handoff") {
+                    Toggle(isOn: $renameForEditor) {
+                        Label("Rename files to descriptions", systemImage: "character.cursor.ibeam")
+                    }
+                    Button { materialize(.copy, options: handoffOptions) } label: {
+                        Label("Export for Editor…", systemImage: "person.crop.rectangle.stack")
+                    }
+                    .disabled(space.items.isEmpty)
+                }
 
                 Divider()
 
@@ -238,12 +256,12 @@ struct SpaceDetailView: View {
 
     // MARK: - Materialize (symlink / copy)
 
-    private func materialize(_ mode: SpaceMaterializer.Mode) {
+    private func materialize(_ mode: SpaceMaterializer.Mode, options: SpaceMaterializer.Options = .plain) {
         guard let space else { return }
         chooseDestination(for: space, mode: mode) { destination in
             Task { @MainActor in
                 do {
-                    let result = try await SpaceMaterializer.materialize(space, mode: mode, into: destination)
+                    let result = try await SpaceMaterializer.materialize(space, mode: mode, into: destination, options: options)
                     NSWorkspace.shared.activateFileViewerSelecting([result.directory])
                 } catch {
                     NSAlert(error: error).runModal()

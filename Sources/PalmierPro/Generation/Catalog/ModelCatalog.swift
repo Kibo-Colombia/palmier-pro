@@ -41,12 +41,23 @@ final class ModelCatalog {
 
     @ObservationIgnored private var subscription: AnyCancellable?
     @ObservationIgnored private var didConfigure = false
+    @ObservationIgnored private var falKeyObserver: NSObjectProtocol?
+    /// The most recent entries from Convex, kept so we can re-merge fal-direct models on key change.
+    @ObservationIgnored private var convexEntries: [CatalogEntry] = []
 
     private init() {}
 
     func configure() {
         guard !didConfigure else { return }
         didConfigure = true
+
+        // BYOK fal models work without a Convex account; seed them now and on key changes.
+        applyMerged()
+        falKeyObserver = NotificationCenter.default.addObserver(
+            forName: .falAPIKeyChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyMerged() }
+        }
 
         guard let client = AccountService.shared.convex else { return }
 
@@ -61,9 +72,20 @@ final class ModelCatalog {
                     }
                 },
                 receiveValue: { [weak self] entries in
-                    self?.apply(entries)
+                    self?.convexEntries = entries
+                    self?.applyMerged()
                 }
             )
+    }
+
+    /// fal BYOK models the catalog should expose alongside whatever Convex returned.
+    private var falDirectAudio: [AudioModelConfig] {
+        FalKeychain.hasKey ? FalDirectModels.audio : []
+    }
+
+    /// Rebuilds the catalog from the latest Convex entries plus any fal-direct models.
+    private func applyMerged() {
+        apply(convexEntries)
     }
 
     private func apply(_ entries: [CatalogEntry]) {
@@ -94,12 +116,19 @@ final class ModelCatalog {
             }
         }
 
+        // Merge fal BYOK models (deduped by id so Convex entries win if they ever overlap).
+        for m in falDirectAudio where newById[m.id] == nil {
+            newAudio.append(m)
+            newById[m.id] = .audio(m)
+        }
+
         self.video = newVideo
         self.image = newImage
         self.audio = newAudio
         self.upscale = newUpscale
         self.byId = newById
-        self.isLoaded = true
+        // Loaded once Convex has answered, OR when fal models are available offline.
+        self.isLoaded = !entries.isEmpty || !falDirectAudio.isEmpty
         self.lastError = nil
     }
 }

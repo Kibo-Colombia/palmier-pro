@@ -18,15 +18,16 @@ enum LibraryToolDefinitions {
     static let all: [AnthropicToolSchema] = [
         schema(
             .listLibrary,
-            "Lists the Library: every root folder, every video file in it (with on-device label tokens like 'set:night'), and indexing progress. Call this first. If indexing.isIndexing is true, labels are still filling in.",
+            "Lists the Library and what's understood about it. Each file carries: on-device visual label tokens (e.g. 'set:night'); seen (true once visually indexed); said ('speech' = transcribed spoken words, 'silent' = no audio/no speech, 'pending' = not transcribed yet); plus spoken (a transcript preview) and lang (auto-detected per clip, e.g. 'es' or 'en') when there is speech. Top-level 'understanding' counts seen/labeled/heardSpeech/silent/saidPending across the whole Library, and 'indexing' reports the live pass (phase 'seeing' = visual, 'hearing' = transcribing). Call this first. While indexing.isIndexing is true, seen/said are still filling in.",
             obj()
         ),
         schema(
             .searchLibrary,
-            "Finds Library files by filename substring and/or label tokens. Both filters are ANDed; omit one to ignore it. Use before listing everything when you know what you want.",
+            "Finds Library files by filename OR spoken words (query), label tokens, and/or transcription state. All provided filters are ANDed. Use 'query' to match both the filename and what is said in the clip; use 'said' to narrow to transcribed/silent/not-yet clips. Results include said, and spoken/lang when there is speech.",
             obj(properties: [
-                "query": ["type": "string", "description": "Case-insensitive filename substring."],
+                "query": ["type": "string", "description": "Case-insensitive substring matched against BOTH the filename and the spoken transcript."],
                 "labels": ["type": "array", "items": ["type": "string"], "description": "Label tokens to require, e.g. ['night', 'set:beach']. A file matches a token if any of its labels contains it."],
+                "said": ["type": "string", "enum": ["speech", "silent", "pending"], "description": "Filter by transcription state: 'speech' = has spoken words, 'silent' = no audio/no speech, 'pending' = not transcribed yet."],
                 "limit": ["type": "integer", "description": "Max matches to return (default 50)."],
             ])
         ),

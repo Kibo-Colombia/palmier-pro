@@ -1,3 +1,4 @@
+import AVFoundation
 import CryptoKit
 import Foundation
 
@@ -24,6 +25,31 @@ actor TranscriptCache {
             : try await Transcription.transcribe(fileURL: url)
         if let key { store(full, key: key) }
         return full
+    }
+
+    /// Library-oriented, disk-cached, auto-language transcription. Returns the cached transcript
+    /// if present; otherwise runs `transcribeAutoLanguage` and persists the result — including an
+    /// empty result for clips with no audio track or no speech, so they read as "silent" and are
+    /// never reprocessed. Never throws: a genuine transcription failure returns empty WITHOUT
+    /// caching, so it's retried on the next pass.
+    func libraryTranscript(for url: URL, candidates: [Locale]) async -> TranscriptionResult {
+        let key = Self.key(for: url)
+        if let key, let full = cached(key) { return full }
+
+        let hasAudio = ((try? await AVURLAsset(url: url).loadTracks(withMediaType: .audio))?.isEmpty == false)
+        guard hasAudio else {
+            if let key { store(Transcription.emptyResult, key: key) }   // no audio → silent, terminal
+            return Transcription.emptyResult
+        }
+
+        do {
+            let result = try await Transcription.transcribeAutoLanguage(videoURL: url, candidates: candidates)
+            if let key { store(result, key: key) }
+            return result
+        } catch {
+            Log.transcription.warning("library transcript failed \(url.lastPathComponent): \(error.localizedDescription)")
+            return Transcription.emptyResult   // not cached → retried next pass
+        }
     }
 
     static func filter(_ r: TranscriptionResult, to range: ClosedRange<Double>) -> TranscriptionResult {

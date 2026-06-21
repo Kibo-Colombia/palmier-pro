@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Foundation
 import Speech
@@ -67,6 +68,68 @@ enum Transcription {
         defer { try? FileManager.default.removeItem(at: tempAudioURL) }
         let result = try await transcribe(fileURL: tempAudioURL, censorProfanity: censorProfanity, preferredLocale: preferredLocale)
         return result.offsetting(by: sourceRange?.lowerBound ?? 0)
+    }
+
+    /// An empty (silent / no-speech) transcript. Persisted so a clip with no spoken
+    /// content isn't reprocessed on every pass.
+    static let emptyResult = TranscriptionResult(text: "", language: nil, words: [], segments: [])
+
+    /// Transcribe a video, auto-picking the spoken language per clip from `candidates`.
+    /// For mixed corpora (e.g. Spanish narration + English conversations) a single forced
+    /// locale mangles the other language; here we extract the audio once, probe each
+    /// candidate on a short head window, score the probe text by how many words are real in
+    /// that language (on-device spell-check), then full-transcribe in the winner. An empty
+    /// result means no speech was found (silent). One candidate skips the probe entirely.
+    static func transcribeAutoLanguage(videoURL: URL, candidates: [Locale]) async throws -> TranscriptionResult {
+        let audioURL = try await extractAudioTrack(from: videoURL)
+        defer { try? FileManager.default.removeItem(at: audioURL) }
+
+        guard candidates.count > 1 else {
+            return try await transcribe(fileURL: audioURL, preferredLocale: candidates.first)
+        }
+
+        let duration = (try? await AVURLAsset(url: videoURL).load(.duration).seconds) ?? 0
+        // Long clips: probe only the first 45s to choose the language, then transcribe in full.
+        // Short clips: the "probe" is the whole clip, so the winner is already the full transcript.
+        let probeAsFull = duration <= 90
+        let probeRange: ClosedRange<Double>? = probeAsFull ? nil : 0...min(45, max(1, duration))
+
+        var scored: [(locale: Locale, result: TranscriptionResult, score: Double)] = []
+        for cand in candidates {
+            let probe = (try? await transcribe(fileURL: audioURL, preferredLocale: cand, sourceRange: probeRange))
+                ?? Self.emptyResult
+            let score = await languageScore(probe.text, locale: cand)
+            scored.append((cand, probe, score))
+        }
+
+        guard let best = scored.max(by: { $0.score < $1.score }) else { return Self.emptyResult }
+        // No real words in any language → treat as silent (no usable speech).
+        if best.score == 0, scored.allSatisfy({ $0.result.text.isEmpty }) { return Self.emptyResult }
+
+        if probeAsFull { return best.result }
+        return try await transcribe(fileURL: audioURL, preferredLocale: best.locale)
+    }
+
+    /// Fraction of (≥2-letter) words in `text` that are correctly spelled in `locale`.
+    /// The right-language transcript scores far higher than a wrong-language garble, so this
+    /// reliably ranks candidate locales for the same audio. Runs on the main actor because
+    /// `NSSpellChecker` is shared UI state.
+    static func languageScore(_ text: String, locale: Locale) async -> Double {
+        let words = text.split { !$0.isLetter }.map(String.init).filter { $0.count >= 2 }
+        guard !words.isEmpty else { return 0 }
+        let bcp = locale.identifier(.bcp47)
+        return await MainActor.run {
+            let checker = NSSpellChecker.shared
+            var valid = 0
+            for word in words {
+                let range = checker.checkSpelling(
+                    of: word, startingAt: 0, language: bcp, wrap: false,
+                    inSpellDocumentWithTag: 0, wordCount: nil
+                )
+                if range.location == NSNotFound { valid += 1 }
+            }
+            return Double(valid) / Double(words.count)
+        }
     }
 
     static func supportedLocales() async -> [Locale] {

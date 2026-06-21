@@ -35,12 +35,32 @@ final class LibraryToolExecutor: AgentToolHost {
     private func listLibrary() -> ToolResult {
         let roots = RootsRegistry.shared
         let indexer = LibraryIndexer.shared
+        var seenCount = 0, labeledCount = 0, speechCount = 0, silentCount = 0, pendingSaidCount = 0
         let files = roots.files.map { url -> [String: Any] in
+            let fileLabels = labels(for: url)
+            let seen = EmbeddingStore.hasIndex(for: url)
+            let transcript = TranscriptCache.cachedOnDisk(for: url)
+            let said = saidStatus(transcript)
+
+            if seen { seenCount += 1 }
+            if !fileLabels.isEmpty { labeledCount += 1 }
+            switch said {
+            case "speech": speechCount += 1
+            case "silent": silentCount += 1
+            default: pendingSaidCount += 1
+            }
+
             var dict: [String: Any] = [
                 "path": url.path,
                 "name": url.deletingPathExtension().lastPathComponent,
-                "labels": labels(for: url),
+                "labels": fileLabels,
+                "seen": seen,
+                "said": said,
             ]
+            if let transcript, !transcript.text.isEmpty {
+                dict["spoken"] = String(transcript.text.prefix(280))
+                if let lang = transcript.language { dict["lang"] = lang }
+            }
             if let addr = roots.address(for: url) { dict["dragId"] = addr.dragString }
             return dict
         }
@@ -48,31 +68,69 @@ final class LibraryToolExecutor: AgentToolHost {
             "roots": roots.roots.map { ["label": $0.label] },
             "fileCount": files.count,
             "files": files,
-            "indexing": ["isIndexing": indexer.isIndexing, "done": indexer.done, "total": indexer.total],
+            // Corpus-level "what was understood": seen = visually indexed, labeled = ≥1 label,
+            // heardSpeech/silent/saidPending = the transcription (said) layer.
+            "understanding": [
+                "total": files.count,
+                "seen": seenCount,
+                "labeled": labeledCount,
+                "heardSpeech": speechCount,
+                "silent": silentCount,
+                "saidPending": pendingSaidCount,
+            ],
+            "indexing": [
+                "phase": indexer.phase.rawValue,
+                "isIndexing": indexer.isIndexing,
+                "done": indexer.done,
+                "total": indexer.total,
+            ],
         ])
     }
 
     private func searchLibrary(_ args: [String: Any]) -> ToolResult {
         let query = args.string("query")?.lowercased()
         let wantLabels = args.stringArray("labels").map { $0.lowercased() }
+        let saidFilter = args.string("said")?.lowercased()
         let limit = args.int("limit") ?? 50
         var matches: [[String: Any]] = []
         for url in RootsRegistry.shared.files {
-            if let query, !query.isEmpty, !url.lastPathComponent.lowercased().contains(query) { continue }
             let fileLabels = labels(for: url)
+            let transcript = TranscriptCache.cachedOnDisk(for: url)
+            let spoken = transcript?.text ?? ""
+            let said = saidStatus(transcript)
+
+            // query matches the filename OR the spoken words.
+            if let query, !query.isEmpty,
+               !url.lastPathComponent.lowercased().contains(query),
+               !spoken.lowercased().contains(query) { continue }
             if !wantLabels.isEmpty {
                 let lower = fileLabels.map { $0.lowercased() }
                 let hit = wantLabels.allSatisfy { want in lower.contains { $0.contains(want) } }
                 if !hit { continue }
             }
-            matches.append([
+            if let saidFilter, said != saidFilter { continue }
+
+            var dict: [String: Any] = [
                 "path": url.path,
                 "name": url.deletingPathExtension().lastPathComponent,
                 "labels": fileLabels,
-            ])
+                "said": said,
+            ]
+            if !spoken.isEmpty {
+                dict["spoken"] = String(spoken.prefix(280))
+                if let lang = transcript?.language { dict["lang"] = lang }
+            }
+            matches.append(dict)
             if matches.count >= limit { break }
         }
         return jsonResult(["matchCount": matches.count, "matches": matches])
+    }
+
+    /// The "said" understanding state from the on-disk transcript: no transcript yet → pending,
+    /// empty transcript (no audio / no speech) → silent, otherwise → speech.
+    private func saidStatus(_ transcript: TranscriptionResult?) -> String {
+        guard let transcript else { return "pending" }
+        return transcript.text.isEmpty ? "silent" : "speech"
     }
 
     /// Top label tokens for a file, read passively from the on-disk sidecar (no model inference —

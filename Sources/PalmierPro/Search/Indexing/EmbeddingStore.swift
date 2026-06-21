@@ -54,6 +54,13 @@ struct EmbeddingStore {
         directory.appendingPathComponent("\(key).embed")
     }
 
+    /// True when a visual index sidecar exists on disk for `url` (the "seen" signal), without
+    /// loading the model. Passive read for the Library's understanding status.
+    static func hasIndex(for url: URL) -> Bool {
+        guard let key = key(for: url) else { return false }
+        return FileManager.default.fileExists(atPath: diskURL(key).path)
+    }
+
     static func header(key: String) -> Header? {
         guard let handle = try? FileHandle(forReadingFrom: diskURL(key)),
               let prefix = try? handle.read(upToCount: magic.count + 4) else { return nil }

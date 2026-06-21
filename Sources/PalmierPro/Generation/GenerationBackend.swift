@@ -5,10 +5,19 @@ import Combine
 /// The RPC layer for the backend
 @MainActor
 enum GenerationBackend {
-    /// Reactive subscription to a single generation job pushed by Convex.
+    /// Reactive subscription to a single generation job.
+    ///
+    /// Routes to fal-direct polling when in BYOK mode (fal key present, not signed into
+    /// Convex), otherwise to the Convex live query. The fal publisher never errors, so
+    /// its failure type is lifted to `ClientError` to match the shared signature.
     static func subscribe(
         jobId: String
     ) -> AnyPublisher<BackendGenerationJob?, ClientError>? {
+        if GenerationGate.falDirectActive {
+            return FalDirectBackend.subscribe(jobId: jobId)
+                .setFailureType(to: ClientError.self)
+                .eraseToAnyPublisher()
+        }
         guard let convex = AccountService.shared.convex else { return nil }
         return convex.subscribe(
             to: "generations:byId",
@@ -58,6 +67,9 @@ enum GenerationBackend {
         params: BackendGenerationParams,
         projectId: String? = nil,
     ) async throws -> String {
+        if GenerationGate.falDirectActive {
+            return try await FalDirectBackend.submit(model: model, params: params)
+        }
         guard let convex = AccountService.shared.convex else {
             throw GenerationBackendError.notConfigured
         }

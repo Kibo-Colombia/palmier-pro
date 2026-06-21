@@ -3,11 +3,15 @@ import Foundation
 extension ToolExecutor {
     func generate(_ editor: EditorViewModel, _ args: [String: Any], type: ClipType) throws -> ToolResult {
         let prompt = try args.requireString("prompt")
-        guard AccountService.shared.isSignedIn else {
-            throw ToolError("Generation requires signing in to Palmier. Tell the user to sign in.")
-        }
-        guard AccountService.shared.hasCredits else {
-            throw ToolError("Out of credits. Tell the user to add credits or subscribe to keep generating.")
+        // fal BYOK bills the user directly, so skip the Palmier sign-in + credits checks for it.
+        // (Image/video fal-direct isn't wired yet — the backend will report that clearly.)
+        if !GenerationGate.falDirectActive {
+            guard AccountService.shared.isSignedIn else {
+                throw ToolError("Generation requires signing in to Palmier or adding a fal.ai key in Settings.")
+            }
+            guard AccountService.shared.hasCredits else {
+                throw ToolError("Out of credits. Tell the user to add credits or subscribe to keep generating.")
+            }
         }
         switch type {
         case .video:
@@ -195,11 +199,14 @@ extension ToolExecutor {
     }
 
     func generateAudio(_ editor: EditorViewModel, _ args: [String: Any]) async throws -> ToolResult {
-        guard AccountService.shared.isSignedIn else {
-            throw ToolError("Generation requires signing in to Palmier. Tell the user to sign in.")
-        }
-        guard AccountService.shared.hasCredits else {
-            throw ToolError("Out of credits. Tell the user to add credits or subscribe to keep generating.")
+        // fal BYOK bills the user directly, so skip the Palmier sign-in + credits checks for it.
+        if !GenerationGate.falDirectActive {
+            guard AccountService.shared.isSignedIn else {
+                throw ToolError("Generation requires signing in to Palmier or adding a fal.ai key in Settings.")
+            }
+            guard AccountService.shared.hasCredits else {
+                throw ToolError("Out of credits. Tell the user to add credits or subscribe to keep generating.")
+            }
         }
         guard let modelId = args.string("model") ?? AudioModelConfig.allModels.first?.id else {
             throw ToolError("Model catalog not loaded yet. Try again in a moment.")
@@ -316,11 +323,13 @@ extension ToolExecutor {
         guard asset.type == .video || asset.type == .image else {
             throw ToolError("Upscale supports video and image assets only (got \(asset.type.rawValue))")
         }
-        guard AccountService.shared.isSignedIn else {
-            throw ToolError("Upscale requires signing in to Palmier. Tell the user to sign in.")
-        }
-        guard AccountService.shared.hasCredits else {
-            throw ToolError("Out of credits. Tell the user to add credits or subscribe to keep generating.")
+        if !GenerationGate.falDirectActive {
+            guard AccountService.shared.isSignedIn else {
+                throw ToolError("Upscale requires signing in to Palmier or adding a fal.ai key in Settings.")
+            }
+            guard AccountService.shared.hasCredits else {
+                throw ToolError("Out of credits. Tell the user to add credits or subscribe to keep generating.")
+            }
         }
 
         let available = UpscaleModelConfig.models(for: asset.type)

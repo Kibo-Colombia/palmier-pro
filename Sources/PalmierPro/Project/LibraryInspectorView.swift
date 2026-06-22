@@ -98,6 +98,7 @@ private struct FileDossierPane: View {
         }
         .task(id: url.path) {
             let u = url
+            poster = nil  // drop the previous clip's frame so it can't linger while the new one loads
             dossier = await Task.detached { FileDossier(url: u) }.value
             poster = await DossierPoster.make(url: u)
         }
@@ -107,6 +108,7 @@ private struct FileDossierPane: View {
         ZStack {
             Rectangle().fill(Color.black)
             HoverScrubThumbnail(url: url, poster: poster)
+                .id(url)  // reset the thumbnail's cached keyframes when the selected clip changes
         }
         .aspectRatio(16.0 / 9.0, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.sm, style: .continuous))

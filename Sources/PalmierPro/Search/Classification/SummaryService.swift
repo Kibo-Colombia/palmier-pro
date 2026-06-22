@@ -7,10 +7,11 @@ import Foundation
 ///
 /// - **Tier 0** (always-on, on-device): a gist of the cached transcript ("said"), else the
 ///   strongest classification tokens ("seen"). Free, offline, no account.
-/// - **Tier 1** (opt-in, never auto-runs): an LLM (Haiku) synthesizes tags + transcript + a few
-///   key frames into a real sentence. If the clip hasn't been transcribed yet, it transcribes it
-///   first on-device (free, no account) so speech drives the caption. Gated behind a
-///   key/subscription; persisted so the paid call happens once per clip.
+/// - **Tier 1** (opt-in, never auto-runs): an LLM (Haiku) synthesizes key frames + tags +
+///   transcript into a real sentence describing what *happens* on screen — the frames lead, the
+///   speech is supporting context (so a talking-head clip is captioned by its scene, not its
+///   words). Transcribes on-device first if needed so a talky clip still carries its topic. Gated
+///   behind a key/subscription; persisted so the paid call happens once per clip.
 @Observable
 @MainActor
 final class SummaryService {
@@ -59,9 +60,11 @@ final class SummaryService {
         // Grounds the caption in speech — transcribes on-device now if not already cached.
         let transcript = await transcriptExcerpt(forURL: url)
         let richTranscript = (transcript?.count ?? 0) >= 40
-        // Frames carry the most signal for visual footage; fewer when there's real speech.
+        // Frames are the primary evidence for "what happened" — keep strong visual coverage even on
+        // talky clips so the caption describes the scene, not just the speech. A single frame made
+        // every talking-head summary a transcript rehash.
         let frames = await KeyframeThumbnailCache.shared.keyframes(forURL: url, key: key) ?? []
-        let imageBlocks: [[String: Any]] = sampleFrames(frames, max: richTranscript ? 1 : 3).compactMap { frame in
+        let imageBlocks: [[String: Any]] = sampleFrames(frames, max: richTranscript ? 4 : 6).compactMap { frame in
             guard let data = ImageEncoder.encodeJPEG(frame.image, quality: 0.6) else { return nil }
             return ["type": "image", "source": ["type": "base64", "media_type": "image/jpeg", "data": data.base64EncodedString()]]
         }
@@ -122,12 +125,15 @@ final class SummaryService {
     }
 
     private static let llmSystem = """
-    You caption video clips for an editor's media library. You're given tags, a transcript \
-    excerpt (what's said), and/or key frames (what's seen). Describe what the clip is actually \
-    about — subject, action, setting, and topic. When a transcript is present, ground the \
-    description in what's said; the frames and tags are supporting context. Write one concrete \
-    sentence, or two short ones when the clip's spoken content warrants the detail (max ~220 \
-    characters). Present tense, no preamble, no quotes, no markdown.
+    You caption video clips for an editor's media library. Describe what actually HAPPENS in the \
+    clip — the subject, their action, the setting, and any notable objects or events visible in \
+    the key frames. The frames are your primary evidence: lead with what is shown, not with what \
+    is said. Tags and the transcript excerpt are SUPPORTING context — use them to pin down the \
+    topic or clarify an action, but never just restate the speech. A caption that only summarizes \
+    the transcript and ignores the visuals is wrong. If no frames are provided (audio only), \
+    summarize the spoken content instead. Write one concrete sentence describing the scene, or two \
+    short ones when the action warrants it (max ~220 characters). Present tense, no preamble, no \
+    quotes, no markdown.
     """
 
     private func topTokens(key: String) -> [String] {
@@ -187,7 +193,9 @@ final class SummaryService {
         let sampler = header?.samplerVersion ?? 0
         let vocab = Vocabulary.current().fingerprint(model: model, modelVersion: modelVersion)
         let hasTranscript = TranscriptCache.hasCachedOnDisk(for: url)
-        return "v1|\(vocab)|s\(sampler)|t\(hasTranscript ? 1 : 0)"
+        // v2: vision-first Tier-1 synthesis (frames lead, speech is context) — invalidates the
+        // old transcript-grounded captions so they regenerate.
+        return "v2|\(vocab)|s\(sampler)|t\(hasTranscript ? 1 : 0)"
     }
 }
 

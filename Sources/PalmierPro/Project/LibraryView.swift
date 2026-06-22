@@ -42,6 +42,10 @@ struct LibraryView: View {
             }
             Spacer()
             if !roots.roots.isEmpty {
+                Button { LibrarySelection.shared.showOverview(name: "Library", files: roots.files) } label: {
+                    Label("Overview", systemImage: "square.grid.2x2")
+                }
+                .help("Show a live overview of the whole Library")
                 Button(action: addFolder) {
                     Label("Add Folder", systemImage: "folder.badge.plus")
                 }
@@ -135,6 +139,7 @@ private struct LibraryVideoCard: View {
     let url: URL
     @State private var poster: NSImage?
     @State private var isHovered = false
+    @State private var selection = LibrarySelection.shared
 
     private let cardRadius = AppTheme.Radius.sm
 
@@ -149,7 +154,7 @@ private struct LibraryVideoCard: View {
             .overlay {
                 RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
                     .strokeBorder(
-                        AppTheme.Accent.primary.opacity(isHovered ? AppTheme.Opacity.medium : 0),
+                        AppTheme.Accent.primary.opacity(selection.isSelected(url) ? 1 : (isHovered ? AppTheme.Opacity.medium : 0)),
                         lineWidth: AppTheme.BorderWidth.medium
                     )
             }
@@ -165,6 +170,7 @@ private struct LibraryVideoCard: View {
         .scaleEffect(isHovered ? 1.02 : 1.0)
         .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isHovered)
         .onHover { isHovered = $0 }
+        .onTapGesture { selection.selectFile(url) }
         .task(id: url.path) {
             poster = await Self.makePoster(url: url)
         }

@@ -86,6 +86,17 @@ struct SpaceDetailView: View {
 
             Spacer()
 
+            Button {
+                LibrarySelection.shared.showOverview(
+                    name: space.name,
+                    files: space.items.filter(\.isWholeFile).compactMap { roots.fileURL(for: $0) })
+            } label: {
+                Label("Overview", systemImage: "square.grid.2x2")
+            }
+            .disabled(space.items.isEmpty)
+            .help("Show a live overview of this Space")
+            .fixedSize()
+
             if let project = linkedProject {
                 Button {
                     AppState.shared.openProject(at: project)
@@ -305,6 +316,7 @@ private struct SpaceMomentCard: View {
     @State private var roots = RootsRegistry.shared
     @State private var poster: NSImage?
     @State private var isHovered = false
+    @State private var selection = LibrarySelection.shared
 
     private let cardRadius = AppTheme.Radius.sm
     private var url: URL? { roots.fileURL(for: address) }
@@ -326,11 +338,12 @@ private struct SpaceMomentCard: View {
             .aspectRatio(16.0 / 9.0, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
             .overlay {
-                // Subtle hover border so the card reads as interactive
+                // Subtle hover border; accent when selected into the inspector.
+                let isSelected = url.map { selection.isSelected($0) } ?? false
                 RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
                     .strokeBorder(
-                        Color.white.opacity(isHovered ? AppTheme.Opacity.muted : AppTheme.Opacity.hint),
-                        lineWidth: AppTheme.BorderWidth.hairline
+                        isSelected ? AppTheme.Accent.primary : Color.white.opacity(isHovered ? AppTheme.Opacity.muted : AppTheme.Opacity.hint),
+                        lineWidth: isSelected ? AppTheme.BorderWidth.medium : AppTheme.BorderWidth.hairline
                     )
             }
             .overlay(alignment: .bottomLeading) {
@@ -355,6 +368,7 @@ private struct SpaceMomentCard: View {
         .scaleEffect(isHovered ? 1.015 : 1.0)
         .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isHovered)
         .onHover { isHovered = $0 }
+        .onTapGesture { if address.isWholeFile, let url { selection.selectFile(url) } }
         .task(id: address.id) {
             if address.isWholeFile, let url { poster = await Self.makePoster(url: url) }
         }

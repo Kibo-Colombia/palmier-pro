@@ -233,6 +233,8 @@ enum AppTheme {
         static let homeMin = NSSize(width: 760, height: 480)
         /// Width of the docked home-screen Kibo chat column (Library/Spaces).
         static let homeChatWidth: CGFloat = 360
+        /// Width of the docked home-screen Library inspector (file dossier / Space overview).
+        static let libraryInspectorWidth: CGFloat = 320
         static let projectDefault = NSSize(width: 1600, height: 1000)
         static let projectMin = NSSize(width: 960, height: 600)
         static let projectTitlebarTrailingWidth: CGFloat = 280

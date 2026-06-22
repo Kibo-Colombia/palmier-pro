@@ -10,6 +10,7 @@ struct HomeView: View {
     @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
     @AppStorage("homeChatVisible") private var chatVisible = false
     @State private var section: HomeSection = .projects
+    @State private var librarySelection = LibrarySelection.shared
 
     var body: some View {
         HStack(spacing: 0) {
@@ -19,6 +20,12 @@ struct HomeView: View {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.black.opacity(AppTheme.Opacity.medium))
+
+            if let target = librarySelection.target {
+                Divider()
+                LibraryInspectorView(target: target, onClose: { librarySelection.clear() })
+                    .transition(.move(edge: .trailing))
+            }
 
             if chatVisible {
                 Divider()
@@ -31,6 +38,8 @@ struct HomeView: View {
         .background(.ultraThinMaterial)
         .focusEffectDisabled()
         .animation(.easeOut(duration: AppTheme.Anim.hover), value: chatVisible)
+        .animation(.easeOut(duration: AppTheme.Anim.hover), value: librarySelection.target)
+        .onChange(of: section) { _, _ in librarySelection.clear() }
         .task { await VisualModelLoader.shared.prepare() }
         .overlay {
             if !hasSeenWelcome {

@@ -34,11 +34,11 @@ enum SpaceBrief {
     /// Build the handoff package for `files` (the Space's unique source clips, in first-seen order).
     static func build(spaceName: String, files: [URL], rename: Bool) -> Package {
         var usedBases = Set<String>()
-        var dossiers: [Dossier] = []
+        var dossiers: [FileDossier] = []
         var plans: [FilePlan] = []
 
         for (i, url) in files.enumerated() {
-            let d = Dossier(url: url, index: i + 1)
+            let d = FileDossier(url: url, index: i + 1)
             let desired = rename ? slug(for: d, index: i + 1) : url.deletingPathExtension().lastPathComponent
             let base = uniqueBase(desired.isEmpty ? "clip-\(i + 1)" : desired, used: &usedBases)
             dossiers.append(d)
@@ -49,60 +49,10 @@ enum SpaceBrief {
         return Package(plans: plans, manifestName: "_SPACE.md", manifest: manifest)
     }
 
-    // MARK: - Dossier (passive reads of the sidecars)
-
-    /// Everything we know about one clip, gathered from the caches. No inference.
-    private struct Dossier {
-        let url: URL
-        let index: Int
-        let summary: String?
-        let summaryIsAI: Bool
-        let fileLabels: [String]          // seen (visual, fused), ranked
-        let heardLabels: [String]         // heard (transcript): say:, topic:
-        let scenes: [SceneLabels]         // timecoded shot labels
-        let transcript: TranscriptionResult?
-
-        init(url: URL, index: Int) {
-            self.url = url
-            self.index = index
-            let key = EmbeddingStore.key(for: url)
-            let labels = key.flatMap { LabelStore.load(key: $0) }
-            let merged = LabelMerge.merged(visual: labels?.file ?? [], url: url, key: key)
-            self.fileLabels = merged.filter { !HeardFacets.isHeard($0.token) }
-                .sorted { ($0.coverage * Double($0.peak)) > ($1.coverage * Double($1.peak)) }
-                .map(\.token)
-            self.heardLabels = merged.filter { HeardFacets.isHeard($0.token) }.map(\.token)
-            self.scenes = (labels?.scenes ?? []).sorted { $0.shotStart < $1.shotStart }
-            let summary = key.flatMap { SummaryStore.load(key: $0) }
-            self.summary = summary?.fileSummary
-            self.summaryIsAI = (summary?.fileTier ?? 0) >= 1
-            self.transcript = TranscriptCache.cachedOnDisk(for: url)
-        }
-
-        var said: String {
-            guard let transcript else { return "not transcribed" }
-            return transcript.text.isEmpty ? "silent" : "speech"
-        }
-
-        /// Best one-line description for tables/slugs: the summary if present, else the top labels.
-        var oneLiner: String {
-            if let summary, !summary.isEmpty { return summary }
-            let vals = fileLabels.prefix(4).map(Self.value).joined(separator: ", ")
-            return vals.isEmpty ? "—" : vals
-        }
-
-        /// Approx duration from the last shot's end (avoids loading the asset).
-        var approxDuration: Double? { scenes.last?.shotEnd }
-
-        /// The say: content-type value (intro/explainer/story/silent), if classified.
-        var sayValue: String? { heardLabels.first { $0.hasPrefix("say:") }.map(Self.value) }
-
-        static func value(_ token: String) -> String { token.split(separator: ":").last.map(String.init) ?? token }
-    }
-
     // MARK: - Per-file markdown
+    // The per-clip understanding model lives in FileDossier (shared with the Library inspector).
 
-    private static func fileMarkdown(_ d: Dossier, mediaName: String) -> String {
+    private static func fileMarkdown(_ d: FileDossier, mediaName: String) -> String {
         var out = "# \(prettyTitle(d))\n\n"
         out += "**File:** `\(mediaName)`  \n"
         out += "**Original:** `\(d.url.lastPathComponent)`  \n"
@@ -140,10 +90,10 @@ enum SpaceBrief {
 
     /// Merge timecoded shot labels and speech segments into one source-relative timeline (clip
     /// start = 0:00). Shot markers read "▸ wide · outdoor · walking"; speech lines quote the words.
-    private static func timelineLines(_ d: Dossier) -> [String] {
+    private static func timelineLines(_ d: FileDossier) -> [String] {
         var events: [(time: Double, line: String)] = []
         for scene in d.scenes {
-            let vals = scene.tokens.prefix(4).map { Dossier.value($0.token) }.joined(separator: " · ")
+            let vals = scene.tokens.prefix(4).map { FileDossier.value($0.token) }.joined(separator: " · ")
             guard !vals.isEmpty else { continue }
             events.append((scene.shotStart, "- `\(timecode(scene.shotStart))`  ▸ \(vals)"))
         }
@@ -157,7 +107,7 @@ enum SpaceBrief {
 
     // MARK: - Manifest markdown
 
-    private static func manifestMarkdown(spaceName: String, dossiers: [Dossier], plans: [FilePlan]) -> String {
+    private static func manifestMarkdown(spaceName: String, dossiers: [FileDossier], plans: [FilePlan]) -> String {
         let name = spaceName.trimmingCharacters(in: .whitespacesAndNewlines)
         var out = "# \(name.isEmpty ? "Space" : name) — editor handoff\n\n"
         out += "\(dossiers.count) clip\(dossiers.count == 1 ? "" : "s") · prepared by Koma · **originals were never modified.**\n\n"
@@ -166,7 +116,7 @@ enum SpaceBrief {
         out += "| # | File | What it is | Labels | Audio |\n"
         out += "|---|------|-----------|--------|-------|\n"
         for (d, plan) in zip(dossiers, plans) {
-            let labels = d.fileLabels.prefix(4).map(Dossier.value).joined(separator: ", ")
+            let labels = d.fileLabels.prefix(4).map(FileDossier.value).joined(separator: ", ")
             let audio = d.sayValue.map { "\(d.said) · \($0)" } ?? d.said
             out += "| \(String(format: "%02d", d.index)) | `\(plan.mediaName)` | \(escapeCell(truncate(d.oneLiner, 80))) | \(escapeCell(labels)) | \(escapeCell(audio)) |\n"
         }
@@ -180,12 +130,12 @@ enum SpaceBrief {
     // MARK: - Naming
 
     /// Human-readable, filesystem-safe base derived from the clip's summary (preferred) or labels.
-    private static func slug(for d: Dossier, index: Int) -> String {
+    private static func slug(for d: FileDossier, index: Int) -> String {
         let source: String
         if let s = d.summary, !s.isEmpty {
             source = s
         } else if !d.fileLabels.isEmpty {
-            source = d.fileLabels.prefix(3).map(Dossier.value).joined(separator: " ")
+            source = d.fileLabels.prefix(3).map(FileDossier.value).joined(separator: " ")
         } else {
             source = d.url.deletingPathExtension().lastPathComponent
         }
@@ -214,9 +164,9 @@ enum SpaceBrief {
 
     // MARK: - Formatting helpers
 
-    private static func prettyTitle(_ d: Dossier) -> String {
+    private static func prettyTitle(_ d: FileDossier) -> String {
         if let s = d.summary, !s.isEmpty { return truncate(s, 70) }
-        let vals = d.fileLabels.prefix(3).map(Dossier.value).joined(separator: " · ")
+        let vals = d.fileLabels.prefix(3).map(FileDossier.value).joined(separator: " · ")
         return vals.isEmpty ? d.url.deletingPathExtension().lastPathComponent : vals
     }
 

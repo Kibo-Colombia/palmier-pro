@@ -682,15 +682,20 @@ struct InspectorView: View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
             colorHeader(clips: clips)
             if colorExpanded {
-                VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+                VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
                     looksStrip(clips: clips)
                     if currentLut(clips) != nil {
-                        propertyRow(label: "Look") { lookIntensityField(clips: clips) }
+                        gradeSliderRow("Look", clips: clips, range: 0...1, neutral: 1, \.lookIntensity,
+                                       format: "%.0f", multiplier: 100, suffix: "%", action: "Adjust Look Intensity")
                     }
-                    gradeRow("Exposure", clips: clips, range: -4...4, \.exposure, action: "Adjust Exposure")
-                    gradeRow("Contrast", clips: clips, range: 0...4, \.contrast, action: "Adjust Contrast")
-                    gradeRow("Saturation", clips: clips, range: 0...4, \.saturation, action: "Adjust Saturation")
-                    gradeRow("Warmth", clips: clips, range: -100...100, format: "%.0f", \.temperature, action: "Adjust Warmth")
+                    gradeSliderRow("Exposure", clips: clips, range: -4...4, neutral: 0, \.exposure, action: "Adjust Exposure")
+                    gradeSliderRow("Contrast", clips: clips, range: 0...4, neutral: 1, \.contrast, action: "Adjust Contrast")
+                    gradeSliderRow("Saturation", clips: clips, range: 0...4, neutral: 1, \.saturation, action: "Adjust Saturation")
+                    gradeSliderRow("Warmth", clips: clips, range: -100...100, neutral: 0, \.temperature, format: "%.0f", action: "Adjust Warmth")
+                    Text("Drag a value up/down to change it · ⇧ finer · right-click resets")
+                        .font(.system(size: AppTheme.FontSize.xxs))
+                        .foregroundStyle(AppTheme.Text.mutedColor)
+                        .padding(.top, AppTheme.Spacing.xxs)
                     autoColorButton(clips: clips)
                 }
                 .padding(.leading, sectionContentIndent)
@@ -817,36 +822,29 @@ struct InspectorView: View {
         looksVersion += 1
     }
 
-    private func lookIntensityField(clips: [Clip]) -> some View {
-        ScrubbableNumberField(
-            value: sharedClipValue(clips) { $0.grade.lookIntensity },
-            range: 0...1, displayMultiplier: 100, format: "%.0f", valueSuffix: "%", fieldWidth: 50,
-            onChanged: { v in for c in clips { editor.applyClipProperty(clipId: c.id) { $0.grade.lookIntensity = v } } }
-        ) { v in
-            editor.undoManager?.beginUndoGrouping()
-            for c in clips { editor.commitClipProperty(clipId: c.id) { $0.grade.lookIntensity = v } }
-            editor.undoManager?.endUndoGrouping()
-            editor.undoManager?.setActionName("Adjust Look Intensity")
-        }
-    }
-
-    private func gradeRow(
-        _ label: String, clips: [Clip], range: ClosedRange<Double>,
-        multiplier: Double = 1, format: String = "%.2f", valueSuffix: String = "",
-        _ kp: WritableKeyPath<ColorGrade, Double>, action: String
+    private func gradeSliderRow(
+        _ label: String, clips: [Clip], range: ClosedRange<Double>, neutral: Double,
+        _ kp: WritableKeyPath<ColorGrade, Double>,
+        format: String = "%.2f", multiplier: Double = 1, suffix: String = "", action: String
     ) -> some View {
-        propertyRow(label: label) {
-            ScrubbableNumberField(
-                value: sharedClipValue(clips) { $0.grade[keyPath: kp] },
-                range: range, displayMultiplier: multiplier, format: format, valueSuffix: valueSuffix, fieldWidth: 50,
-                onChanged: { v in for c in clips { editor.applyClipProperty(clipId: c.id) { $0.grade[keyPath: kp] = v } } }
-            ) { v in
+        GradeSlider(
+            label: label,
+            value: sharedClipValue(clips) { $0.grade[keyPath: kp] },
+            range: range, neutral: neutral, format: format, displayMultiplier: multiplier, valueSuffix: suffix,
+            onChanged: { v in for c in clips { editor.applyClipProperty(clipId: c.id) { $0.grade[keyPath: kp] = v } } },
+            onCommit: { v in
                 editor.undoManager?.beginUndoGrouping()
                 for c in clips { editor.commitClipProperty(clipId: c.id) { $0.grade[keyPath: kp] = v } }
                 editor.undoManager?.endUndoGrouping()
                 editor.undoManager?.setActionName(action)
+            },
+            onReset: {
+                editor.undoManager?.beginUndoGrouping()
+                for c in clips { editor.commitClipProperty(clipId: c.id) { $0.grade[keyPath: kp] = neutral } }
+                editor.undoManager?.endUndoGrouping()
+                editor.undoManager?.setActionName(action)
             }
-        }
+        )
     }
 
     private func autoColorButton(clips: [Clip]) -> some View {

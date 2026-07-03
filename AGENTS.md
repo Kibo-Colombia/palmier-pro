@@ -42,3 +42,16 @@ Palmier Pro speaks like a quietly capable native Mac app for filmmakers: direct,
 confident. Prefer Apple HIG-style terseness over warmth. Never chatty or cute. Never marketing. When the
 product needs to ask for action, lead with the action verb; when it reports state, name the thing.
 
+## Log milestones back to the monorepo brain (single source of truth)
+
+MiraiKibo's weekly/monthly cloud briefings clone ONLY `github.com/Kibo-Colombia/miraikibo` — this
+repo is invisible to them. The status doc `miraikibo/brain/04_lab/koma.md` is Koma's only voice in
+those reports, so keeping it current is part of finishing a milestone here.
+
+When you complete a Koma milestone in this repo (feature shipped, capability proven, disposition
+changed), also update `/Users/nicurrego/workspace/miraikibo/brain/04_lab/koma.md` — a bullet or two
+in its "Status — what's built" section (and "Where it's going" if the next step changed) — then
+commit it there by pathspec (`git add brain/04_lab/koma.md`) and push `main`, per that repo's
+commit cadence. Build/technical detail stays here in `docs/`; koma.md gets the plain-English "what
+it can do now."
+

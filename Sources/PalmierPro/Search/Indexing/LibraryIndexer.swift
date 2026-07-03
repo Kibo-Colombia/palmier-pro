@@ -20,6 +20,11 @@ final class LibraryIndexer {
     private(set) var total = 0
     var isIndexing: Bool { phase != .idle }
 
+    /// Why understanding is incomplete, when it is — the difference between "search found nothing"
+    /// and "the index never got built". Cleared at the start of every run; shown in the Library
+    /// header with a Retry affordance (failed files write no sidecar, so a re-run picks them up).
+    private(set) var issue: String?
+
     /// Human label for the live pass, shown in the Library header.
     var phaseLabel: String {
         switch phase {
@@ -54,6 +59,7 @@ final class LibraryIndexer {
     }
 
     private func run(_ urls: [URL]) async {
+        issue = nil
         await seeing(urls)
         await hearing(urls)
         await recognizing(urls)
@@ -68,18 +74,34 @@ final class LibraryIndexer {
             try? await Task.sleep(for: .milliseconds(300))
             if Task.isCancelled { return }
         }
-        guard let model = VisualModelLoader.shared.embedder, VisualModelLoader.shared.isReady else { return }
+        guard let model = VisualModelLoader.shared.embedder, VisualModelLoader.shared.isReady else {
+            issue = switch VisualModelLoader.shared.state {
+            case .notInstalled: "Visual model not downloaded — hover-scrub, labels and search stay off. Download it in Settings."
+            case .failed(let message): "Visual model failed to load: \(message)"
+            default: "Visual model didn't load — visual understanding skipped this pass."
+            }
+            return
+        }
 
         let pending = urls.filter { VisualIndexer.needsIndex(url: $0, spec: model.spec) }
         if !pending.isEmpty {
             phase = .seeing
             total = pending.count
             done = 0
+            var failed = 0
             for url in pending {
                 if Task.isCancelled { break }
                 let duration = (try? await AVURLAsset(url: url).load(.duration).seconds) ?? 0
-                try? await VisualIndexer.index(url: url, duration: duration, model: model)
+                do {
+                    try await VisualIndexer.index(url: url, duration: duration, model: model)
+                } catch {
+                    failed += 1
+                    Log.search.error("library index failed \(url.lastPathComponent): \(error.localizedDescription)")
+                }
                 done += 1
+            }
+            if failed > 0 {
+                issue = "\(failed) clip\(failed == 1 ? "" : "s") couldn't be understood — they'll be retried on the next pass."
             }
         }
         await ClassificationService.shared.classifyAll(urls: urls)

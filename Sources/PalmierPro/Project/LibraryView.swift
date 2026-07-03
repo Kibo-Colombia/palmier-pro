@@ -39,6 +39,21 @@ struct LibraryView: View {
                         .foregroundStyle(AppTheme.Text.tertiaryColor)
                         .monospacedDigit()
                 }
+            } else if let issue = indexer.issue {
+                HStack(spacing: AppTheme.Spacing.xs) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: AppTheme.FontSize.xxs))
+                        .foregroundStyle(Color.orange)
+                    Text(issue)
+                        .font(.system(size: AppTheme.FontSize.xs))
+                        .foregroundStyle(AppTheme.Text.tertiaryColor)
+                        .lineLimit(1)
+                        .help(issue)
+                    Button("Retry") { indexer.ensureIndexed(roots.files) }
+                        .buttonStyle(.plain)
+                        .font(.system(size: AppTheme.FontSize.xs, weight: .semibold))
+                        .foregroundStyle(AppTheme.Accent.primary)
+                }
             }
             Spacer()
             if !roots.roots.isEmpty {

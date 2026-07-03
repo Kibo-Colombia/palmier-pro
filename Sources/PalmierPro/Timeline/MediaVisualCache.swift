@@ -20,6 +20,14 @@ final class MediaVisualCache {
     private var videoThumbnails: [String: [(time: Double, image: CGImage)]] = [:]
     private var videoThumbnailInFlight: Set<String> = []
 
+    /// Ceiling on thumbnails held in memory across all assets (~200 MB at 120×68 BGRA). Long clips
+    /// generate one per 2s, so a handful of hour-long files would otherwise run to gigabytes.
+    /// Least-recently-drawn assets are evicted whole; they reload cheaply from the on-disk cache
+    /// the next time the timeline draws them.
+    private static let maxThumbnailsInMemory = 6000
+    private var thumbnailUseTick = 0
+    private var thumbnailLastUse: [String: Int] = [:]
+
     // MARK: - Image thumbnails (single still per asset)
 
     private var imageThumbnails: [String: CGImage] = [:]
@@ -37,7 +45,12 @@ final class MediaVisualCache {
     }
 
     nonisolated func thumbnails(for mediaRef: String) -> [(time: Double, image: CGImage)]? {
-        MainActor.assumeIsolated { videoThumbnails[mediaRef] }
+        MainActor.assumeIsolated {
+            guard let thumbs = videoThumbnails[mediaRef] else { return nil }
+            thumbnailUseTick += 1
+            thumbnailLastUse[mediaRef] = thumbnailUseTick
+            return thumbs
+        }
     }
 
     nonisolated func imageThumbnail(for mediaRef: String) -> CGImage? {
@@ -131,7 +144,7 @@ final class MediaVisualCache {
                             if results.count % 50 == 0, let self {
                                 let partial = results
                                 await MainActor.run { [self] in
-                                    self.videoThumbnails[key] = partial
+                                    self.storeVideoThumbnails(key, partial)
                                     self.timelineView?.needsDisplay = true
                                 }
                             }
@@ -149,10 +162,27 @@ final class MediaVisualCache {
             await MainActor.run { [self] in
                 self.videoThumbnailInFlight.remove(key)
                 if !results.isEmpty {
-                    self.videoThumbnails[key] = results
+                    self.storeVideoThumbnails(key, results)
                     self.timelineView?.needsDisplay = true
                 }
             }
+        }
+    }
+
+    /// Insert (or update) an asset's thumbnails and evict least-recently-drawn assets past the cap.
+    private func storeVideoThumbnails(_ key: String, _ results: [(time: Double, image: CGImage)]) {
+        videoThumbnails[key] = results
+        thumbnailUseTick += 1
+        thumbnailLastUse[key] = thumbnailUseTick
+        var total = videoThumbnails.values.reduce(0) { $0 + $1.count }
+        while total > Self.maxThumbnailsInMemory {
+            let candidate = videoThumbnails.keys
+                .filter { $0 != key && !videoThumbnailInFlight.contains($0) }
+                .min { (thumbnailLastUse[$0] ?? 0) < (thumbnailLastUse[$1] ?? 0) }
+            guard let candidate else { return }
+            total -= videoThumbnails[candidate]?.count ?? 0
+            videoThumbnails[candidate] = nil
+            thumbnailLastUse[candidate] = nil
         }
     }
 

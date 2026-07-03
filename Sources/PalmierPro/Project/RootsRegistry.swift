@@ -16,6 +16,9 @@ final class RootsRegistry {
     private(set) var roots: [Root] = []
     /// Video files discovered across all roots (the Library's contents). Observable.
     private(set) var files: [URL] = []
+    /// Roots whose bookmark no longer resolves to an existing folder (drive unplugged, folder
+    /// moved or deleted). Recomputed on every rescan; drives the re-link affordance in the Library.
+    private(set) var brokenRootIDs: Set<UUID> = []
 
     private let fileURL = Project.storageDirectory.appendingPathComponent(Project.rootsRegistryFilename)
 
@@ -43,16 +46,40 @@ final class RootsRegistry {
         Task { await rescan() }
     }
 
+    /// Point an existing root at a new folder (footage moved to another disk or path). The label
+    /// is preserved — it's the stable half of every MomentAddress — so Spaces resolve again as
+    /// long as the relative structure inside the folder is unchanged.
+    func relink(_ id: UUID, to url: URL) {
+        guard let idx = roots.firstIndex(where: { $0.id == id }),
+              let bookmark = Bookmarks.create(for: url) else { return }
+        roots[idx].bookmark = bookmark
+        save()
+        Task { await rescan() }
+    }
+
     // MARK: - Scan
 
     /// Re-enumerate every root for video files. Off-main; publishes `files` on completion.
     func rescan() async {
         let roots = self.roots
         let exts = Self.videoExtensions
-        let found: [URL] = await Task.detached(priority: .utility) {
+        let result: (files: [URL], broken: Set<UUID>, refreshed: [UUID: Data]) = await Task.detached(priority: .utility) {
             var out: [URL] = []
+            var broken: Set<UUID> = []
+            var refreshed: [UUID: Data] = [:]
             for root in roots {
-                guard let resolved = Bookmarks.resolve(root.bookmark) else { continue }
+                var isDirectory: ObjCBool = false
+                guard let resolved = Bookmarks.resolve(root.bookmark),
+                      FileManager.default.fileExists(atPath: resolved.url.path, isDirectory: &isDirectory),
+                      isDirectory.boolValue else {
+                    broken.insert(root.id)
+                    continue
+                }
+                // A stale bookmark still resolves this launch but may not next time (e.g. the
+                // folder was moved) — re-mint it against the current location while we can.
+                if resolved.isStale, let fresh = Bookmarks.create(for: resolved.url) {
+                    refreshed[root.id] = fresh
+                }
                 // Claim access for later reads (indexing, playback). No-op while unsandboxed;
                 // intentionally not released for the app's lifetime. TODO: scope per use if sandboxed.
                 _ = resolved.url.startAccessingSecurityScopedResource()
@@ -63,9 +90,14 @@ final class RootsRegistry {
                     out.append(file)
                 }
             }
-            return out.sorted { $0.lastPathComponent < $1.lastPathComponent }
+            return (out.sorted { $0.lastPathComponent < $1.lastPathComponent }, broken, refreshed)
         }.value
-        self.files = found
+        for (id, bookmark) in result.refreshed {
+            if let idx = self.roots.firstIndex(where: { $0.id == id }) { self.roots[idx].bookmark = bookmark }
+        }
+        if !result.refreshed.isEmpty { save() }
+        brokenRootIDs = result.broken
+        self.files = result.files
     }
 
     // MARK: - Portable addressing (M3)

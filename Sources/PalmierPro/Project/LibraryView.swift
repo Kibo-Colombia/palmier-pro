@@ -60,14 +60,22 @@ struct LibraryView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: AppTheme.Spacing.xs) {
                 ForEach(roots.roots) { root in
+                    let isBroken = roots.brokenRootIDs.contains(root.id)
                     HStack(spacing: AppTheme.Spacing.xxs) {
-                        Image(systemName: "folder.fill")
+                        Image(systemName: isBroken ? "exclamationmark.triangle.fill" : "folder.fill")
                             .font(.system(size: AppTheme.FontSize.xxs))
-                            .foregroundStyle(AppTheme.Accent.primary.opacity(0.85))
+                            .foregroundStyle(isBroken ? Color.orange : AppTheme.Accent.primary.opacity(0.85))
                         Text(root.label)
                             .font(.system(size: AppTheme.FontSize.xs))
                             .foregroundStyle(AppTheme.Text.secondaryColor)
                             .lineLimit(1)
+                        if isBroken {
+                            Button("Re-link…") { relink(root) }
+                                .buttonStyle(.plain)
+                                .font(.system(size: AppTheme.FontSize.xs, weight: .semibold))
+                                .foregroundStyle(Color.orange)
+                                .help("This folder can't be found. Point \(root.label) at its new location — Spaces keep working as long as the files inside kept their relative paths.")
+                        }
                         Button { RootsRegistry.shared.remove(root.id) } label: {
                             Image(systemName: "xmark")
                                 .font(.system(size: AppTheme.FontSize.xxs, weight: .bold))
@@ -115,6 +123,21 @@ struct LibraryView: View {
                 .padding(.top, AppTheme.Spacing.xs)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Re-point a broken root at the folder's new location (moved footage, migrated drive).
+    private func relink(_ root: Root) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Re-link"
+        panel.message = "Choose the new location of “\(root.label)”."
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                RootsRegistry.shared.relink(root.id, to: url)
+            }
+        }
     }
 
     private func addFolder() {

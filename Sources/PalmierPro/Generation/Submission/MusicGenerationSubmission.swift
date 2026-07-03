@@ -29,7 +29,8 @@ struct MusicGenerationSubmission {
         projectURL: URL?,
         editor: EditorViewModel,
         onPhase: @MainActor (Phase) -> Void = { _ in },
-        onFinished: @escaping @MainActor () -> Void = {}
+        onFinished: @escaping @MainActor () -> Void = {},
+        onFailed: @escaping @MainActor (String) -> Void = { _ in }
     ) async throws {
         var videoURL: String?
         if mode == .videoToMusic {
@@ -81,7 +82,10 @@ struct MusicGenerationSubmission {
                 editor.finalizeGeneratingClip(placeholderId: asset.id, asset: asset)
                 onFinished()
             },
-            onFailure: { onFinished() }
+            onFailure: { message in
+                onFailed(message)
+                onFinished()
+            }
         )
         editor.placeGeneratingAudioClip(
             placeholderId: placeholderId, startFrame: startFrame, spanSeconds: spanSeconds,

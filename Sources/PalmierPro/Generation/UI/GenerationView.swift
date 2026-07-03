@@ -1611,9 +1611,9 @@ struct GenerationView: View {
                 editorRef?.clearPendingReplacement(clipId: clipId)
             }
         }
-        let onFailure: (@MainActor () -> Void)? = {
+        let onFailure: (@MainActor (String) -> Void)? = {
             guard let clipId = replacementClipId else { return nil }
-            return { [weak editorRef] in
+            return { [weak editorRef] _ in
                 editorRef?.clearPendingReplacement(clipId: clipId)
             }
         }()

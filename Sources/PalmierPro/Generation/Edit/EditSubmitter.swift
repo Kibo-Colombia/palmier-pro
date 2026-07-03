@@ -13,7 +13,7 @@ enum EditSubmitter {
         editor: EditorViewModel,
         trimmedSource: TrimmedSource? = nil,
         onComplete: (@MainActor (MediaAsset) -> Void)? = nil,
-        onFailure: (@MainActor () -> Void)? = nil
+        onFailure: (@MainActor (String) -> Void)? = nil
     ) -> String? {
         guard AccountService.shared.isSignedIn else { return nil }
 
@@ -93,7 +93,7 @@ enum EditSubmitter {
         asset: MediaAsset,
         editor: EditorViewModel,
         onComplete: (@MainActor (MediaAsset) -> Void)? = nil,
-        onFailure: (@MainActor () -> Void)? = nil
+        onFailure: (@MainActor (String) -> Void)? = nil
     ) throws -> String {
         guard AccountService.shared.isSignedIn else {
             throw RerunError.unauthorized

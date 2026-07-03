@@ -15,7 +15,7 @@ struct ImageGenerationSubmission {
         projectURL: URL?,
         editor: EditorViewModel,
         onComplete: (@MainActor (MediaAsset) -> Void)? = nil,
-        onFailure: (@MainActor () -> Void)? = nil
+        onFailure: (@MainActor (String) -> Void)? = nil
     ) -> String {
         service.generate(
             genInput: genInput,

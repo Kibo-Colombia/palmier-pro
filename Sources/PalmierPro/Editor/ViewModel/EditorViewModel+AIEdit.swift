@@ -114,7 +114,7 @@ extension EditorViewModel {
     private func clipReplacementHandlers(
         clipId: String,
         resetTrim: Bool
-    ) -> (onComplete: (@MainActor (MediaAsset) -> Void)?, onFailure: (@MainActor () -> Void)?) {
+    ) -> (onComplete: (@MainActor (MediaAsset) -> Void)?, onFailure: (@MainActor (String) -> Void)?) {
         markPendingReplacement(clipId: clipId)
         let fired = FirstOnlyFlag()
         let onComplete: @MainActor (MediaAsset) -> Void = { [weak self] newAsset in
@@ -122,7 +122,7 @@ extension EditorViewModel {
             self?.replaceClipMediaRef(clipId: clipId, newAssetId: newAsset.id, resetTrim: resetTrim)
             self?.clearPendingReplacement(clipId: clipId)
         }
-        let onFailure: @MainActor () -> Void = { [weak self] in
+        let onFailure: @MainActor (String) -> Void = { [weak self] _ in
             self?.clearPendingReplacement(clipId: clipId)
         }
         return (onComplete, onFailure)

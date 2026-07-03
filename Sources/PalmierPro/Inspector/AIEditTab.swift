@@ -423,9 +423,9 @@ struct AIEditTab: View {
         }
     }
 
-    private func replacementFailure() -> (@MainActor () -> Void)? {
+    private func replacementFailure() -> (@MainActor (String) -> Void)? {
         guard shouldReplace, let clipId else { return nil }
-        return { [weak editor] in
+        return { [weak editor] _ in
             editor?.clearPendingReplacement(clipId: clipId)
         }
     }

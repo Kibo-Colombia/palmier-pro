@@ -319,7 +319,8 @@ struct MusicTab: View {
                     projectURL: editor.projectURL,
                     editor: editor,
                     onPhase: { generatingLabel = $0.label },
-                    onFinished: { isGenerating = false }
+                    onFinished: { isGenerating = false },
+                    onFailed: { note = $0 }
                 )
             } catch {
                 note = error.localizedDescription

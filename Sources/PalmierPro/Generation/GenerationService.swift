@@ -36,7 +36,7 @@ final class GenerationService {
         projectURL: URL?,
         editor: EditorViewModel,
         onComplete: (@MainActor (MediaAsset) -> Void)? = nil,
-        onFailure: (@MainActor () -> Void)? = nil
+        onFailure: (@MainActor (String) -> Void)? = nil
     ) -> String {
         let count = max(1, min(4, numImages))
         let baseName = name ?? String(genInput.prompt.prefix(30))
@@ -139,7 +139,7 @@ final class GenerationService {
                 for placeholder in placeholders {
                     placeholder.generationStatus = .failed("Upload failed: \(message)")
                 }
-                onFailure?()
+                onFailure?("Upload failed: \(message)")
             }
         }
 
@@ -294,7 +294,7 @@ final class GenerationService {
         genInput: GenerationInput,
         editor: EditorViewModel,
         onComplete: (@MainActor (MediaAsset) -> Void)?,
-        onFailure: (@MainActor () -> Void)?
+        onFailure: (@MainActor (String) -> Void)?
     ) async {
         let runId = String(UUID().uuidString.prefix(8))
         Log.generation.notice("run \(runId) start model=\(genInput.model) placeholders=\(placeholders.count)")
@@ -313,7 +313,7 @@ final class GenerationService {
             for placeholder in placeholders {
                 placeholder.generationStatus = .failed(message)
             }
-            onFailure?()
+            onFailure?(message)
             return
         }
 
@@ -321,7 +321,7 @@ final class GenerationService {
             for placeholder in placeholders {
                 placeholder.generationStatus = .failed("Backend not configured")
             }
-            onFailure?()
+            onFailure?("Backend not configured")
             return
         }
 
@@ -353,7 +353,7 @@ final class GenerationService {
                 for placeholder in placeholders {
                     placeholder.generationStatus = .failed(message)
                 }
-                onFailure?()
+                onFailure?(message)
                 return
             case .queued, .running:
                 continue
@@ -366,7 +366,7 @@ final class GenerationService {
         placeholders: [MediaAsset],
         editor: EditorViewModel,
         onComplete: (@MainActor (MediaAsset) -> Void)?,
-        onFailure: (@MainActor () -> Void)?
+        onFailure: (@MainActor (String) -> Void)?
     ) async {
         let urlStrings = job.resultUrls ?? []
         guard !urlStrings.isEmpty else {
@@ -374,7 +374,7 @@ final class GenerationService {
             for placeholder in placeholders {
                 placeholder.generationStatus = .failed("No URL in response")
             }
-            onFailure?()
+            onFailure?("No URL in response")
             return
         }
         if urlStrings.count < placeholders.count {
@@ -402,7 +402,7 @@ final class GenerationService {
                 count: finalized.count
             )
         } else {
-            onFailure?()
+            onFailure?("Download failed")
         }
     }
 

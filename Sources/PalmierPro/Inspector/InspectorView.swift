@@ -65,7 +65,7 @@ struct InspectorView: View {
             if !selecting { resolvePreferredTab() }
         }
         .onChange(of: preferredTab) { _, newTab in
-            if newTab != .video { editor.cropEditingActive = false }
+            if newTab != .video { editor.cropEditingActive = false; editor.maskEditingActive = false }
         }
     }
 
@@ -89,6 +89,7 @@ struct InspectorView: View {
             preferredTab = .video
         }
         editor.cropEditingActive = false
+        editor.maskEditingActive = false
     }
 
     // MARK: - Project Metadata

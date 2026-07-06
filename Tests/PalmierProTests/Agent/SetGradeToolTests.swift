@@ -236,6 +236,53 @@ struct SetGradeToolTests {
         #expect(r2.isError)
     }
 
+    @Test func setMaskAppliesAndMerges() async throws {
+        let (h, id) = harness()
+        var r = await h.runRaw("set_mask", args: [
+            "clipIds": [id], "shape": "radial", "centerX": 0.3, "feather": 0.5,
+        ])
+        #expect(!r.isError, Comment(rawValue: ToolHarness.textOf(r)))
+        var clip = h.editor.clipFor(id: id)!
+        #expect(clip.mask.shape == .radial)
+        #expect(clip.mask.centerX == 0.3)
+        #expect(clip.mask.feather == 0.5)
+        #expect(clip.mask.centerY == 0.5)   // untouched default
+
+        // Partial merge keeps earlier fields; invert flips.
+        r = await h.runRaw("set_mask", args: ["clipIds": [id], "invert": true])
+        #expect(!r.isError)
+        clip = h.editor.clipFor(id: id)!
+        #expect(clip.mask.shape == .radial && clip.mask.invert)
+
+        // Unknown shape and unknown field rejected.
+        #expect(await h.runRaw("set_mask", args: ["clipIds": [id], "shape": "heart"]).isError)
+        #expect(await h.runRaw("set_mask", args: ["clipIds": [id], "softness": 1]).isError)
+
+        // Reset restores defaults.
+        r = await h.runRaw("set_mask", args: ["clipIds": [id], "reset": true])
+        #expect(!r.isError)
+        #expect(h.editor.clipFor(id: id)!.mask == AdjustMask())
+    }
+
+    @Test func maskKeyframesMergeOverStaticMask() async throws {
+        let (h, id) = harness()
+        _ = await h.runRaw("set_mask", args: ["clipIds": [id], "shape": "linear", "rotation": 90.0])
+        let r = await h.runRaw("set_keyframes", args: [
+            "clipId": id, "property": "mask",
+            "keyframes": [
+                [0, ["centerX": -0.5]],
+                [30, ["centerX": 1.5], "linear"],
+            ],
+        ])
+        #expect(!r.isError, Comment(rawValue: ToolHarness.textOf(r)))
+        let clip = h.editor.clipFor(id: id)!
+        let track = try #require(clip.maskTrack)
+        #expect(track.keyframes.count == 2)
+        #expect(track.keyframes.allSatisfy { $0.value.shape == .linear && $0.value.rotation == 90 })
+        #expect(track.keyframes[0].value.centerX == -0.5)
+        #expect(clip.maskAt(frame: 15).centerX == 0.5)   // linear midpoint
+    }
+
     @Test func audioClipRejected() async {
         let clip = Fixtures.clip(id: "a1", mediaType: .audio, start: 0, duration: 60)
         let h = ToolHarness(timeline: Fixtures.timeline(tracks: [Fixtures.audioTrack(clips: [clip])]))

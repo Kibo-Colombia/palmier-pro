@@ -21,7 +21,7 @@ struct ColorSectionView: View {
                     case .hsl:    ColorHSLTab(clips: clips)
                     case .curves: ColorCurvesTab(clips: clips)
                     case .wheels: ColorWheelsTab(clips: clips)
-                    case .mask:   comingSoon("Mask")
+                    case .mask:   ColorMaskTab(clips: clips)
                     }
                 }
             }
@@ -113,7 +113,10 @@ struct ColorSectionView: View {
     private var resetButton: some View {
         Button {
             commitGradeToClips(editor, clips, actionName: "Reset Color") { c in
-                editor.commitClipProperty(clipId: c.id) { $0.grade = ColorGrade(); $0.gradeTrack = nil }
+                editor.commitClipProperty(clipId: c.id) {
+                    $0.grade = ColorGrade(); $0.gradeTrack = nil
+                    $0.mask = AdjustMask(); $0.maskTrack = nil
+                }
             }
         } label: {
             Image(systemName: "arrow.counterclockwise")
@@ -176,7 +179,12 @@ struct ColorSectionView: View {
         case .hsl:    portion = { $0.hsl = HSLAdjust() }
         case .curves: portion = { $0.curves = CurveSet() }
         case .wheels: portion = { $0.wheels = ColorWheels() }
-        case .mask:   return nil
+        case .mask:
+            return {
+                commitGradeToClips(editor, clips, actionName: "Reset Mask") { c in
+                    editor.commitClipProperty(clipId: c.id) { $0.mask = AdjustMask(); $0.maskTrack = nil }
+                }
+            }
         }
         return {
             commitGradeToClips(editor, clips, actionName: "Reset \(subTab.rawValue)") { c in
@@ -191,10 +199,4 @@ struct ColorSectionView: View {
         }
     }
 
-    private func comingSoon(_ name: String) -> some View {
-        Text("\(name) is coming in the next update.")
-            .font(.system(size: AppTheme.FontSize.xs))
-            .foregroundStyle(AppTheme.Text.mutedColor)
-            .padding(.vertical, AppTheme.Spacing.sm)
-    }
 }

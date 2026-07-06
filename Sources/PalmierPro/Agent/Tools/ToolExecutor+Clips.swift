@@ -475,7 +475,7 @@ extension ToolExecutor {
 
     // MARK: set_keyframes
 
-    private static let keyframePropertyNames: Set<String> = ["volume", "opacity", "rotation", "position", "scale", "crop", "grade"]
+    private static let keyframePropertyNames: Set<String> = ["volume", "opacity", "rotation", "position", "scale", "crop", "grade", "mask"]
 
     func setKeyframes(_ editor: EditorViewModel, _ args: [String: Any]) throws -> ToolResult {
         let input: SetKeyframesInput = try decodeToolArgs(args, path: "set_keyframes")
@@ -518,6 +518,13 @@ extension ToolExecutor {
                 }
                 let kfs = try Self.parseGradeKeyframes(rows, base: base, path: "keyframes")
                 editor.commitClipProperty(clipId: input.clipId) { $0.gradeTrack = kfs.keyframes.isEmpty ? nil : kfs }
+            case "mask":
+                // Same object-row shape as grade: [frame, {mask fields}, interp?] over the static mask.
+                guard let base = editor.clipFor(id: input.clipId)?.mask else {
+                    throw ToolError("Clip not found: \(input.clipId)")
+                }
+                let kfs = try Self.parseMaskKeyframes(rows, base: base, path: "keyframes")
+                editor.commitClipProperty(clipId: input.clipId) { $0.maskTrack = kfs.keyframes.isEmpty ? nil : kfs }
             default:
                 break  // unreachable: validated above
             }
@@ -605,6 +612,25 @@ extension ToolExecutor {
             let channels = try GradeChannels.parse(obj, path: "\(path)[\(i)][1]")
             let interp = try kfInterp(row.count > 2 ? row[2] : nil, at: "\(path)[\(i)][2] (interp)")
             out.append(Keyframe(frame: frame, value: channels.merged(over: base).grade, interpolationOut: interp))
+        }
+        return KeyframeTrack(keyframes: sortAndDedupe(out))
+    }
+
+    /// Parse `[[frame, {mask fields}, interp?], ...]` — object-valued rows (see set_mask
+    /// for the field vocabulary; validated by the same MaskChannels parser).
+    fileprivate static func parseMaskKeyframes(_ rows: [Any], base: AdjustMask, path: String) throws -> KeyframeTrack<AdjustMask> {
+        var out: [Keyframe<AdjustMask>] = []
+        for (i, raw) in rows.enumerated() {
+            guard let row = raw as? [Any], row.count == 2 || row.count == 3 else {
+                throw ToolError("\(path)[\(i)]: expected [frame, {mask fields}, interp?]")
+            }
+            let frame = try kfInt(row[0], at: "\(path)[\(i)][0] (frame)")
+            guard let obj = row[1] as? [String: Any] else {
+                throw ToolError("\(path)[\(i)][1]: expected a mask-fields object (like set_mask's fields)")
+            }
+            let channels = try MaskChannels.parse(obj, path: "\(path)[\(i)][1]")
+            let interp = try kfInterp(row.count > 2 ? row[2] : nil, at: "\(path)[\(i)][2] (interp)")
+            out.append(Keyframe(frame: frame, value: channels.merged(over: base).mask, interpolationOut: interp))
         }
         return KeyframeTrack(keyframes: sortAndDedupe(out))
     }

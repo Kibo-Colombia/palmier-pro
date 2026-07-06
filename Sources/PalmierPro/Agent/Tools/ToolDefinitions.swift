@@ -11,6 +11,7 @@ enum ToolName: String, CaseIterable, Sendable {
     case setClipProperties = "set_clip_properties"
     case setKeyframes = "set_keyframes"
     case setGrade = "set_grade"
+    case setMask = "set_mask"
     case applyLook = "apply_look"
     case listLooks = "list_looks"
     case importLook = "import_look"
@@ -216,13 +217,13 @@ enum ToolDefinitions {
         ),
         AgentTool(
             name: .setKeyframes,
-            description: "Set animated keyframes on one property of one clip. Replaces the existing keyframe track for that property (pass an empty array to clear). Frames are CLIP-RELATIVE offsets (0 = first frame of the clip), so keyframes follow the clip when it moves. Rows are sorted by frame internally and the LAST row for any duplicate frame wins. Values must be finite numbers. Each row is `[frame, ...values, interp?]` where interp ∈ {linear, hold, smooth} (default smooth).\n\nProperties and their value layouts:\n  • volume `[frame, value]` — value 0.0–1.0\n  • opacity `[frame, value]` — value 0.0–1.0\n  • rotation `[frame, degrees]` — clockwise degrees\n  • position `[frame, topLeftX, topLeftY]` — TOP-LEFT corner in 0–1 normalized canvas coords. NOT the center. (Default static transform centers a full-canvas clip, so top-left of the static is (0, 0); a centered half-size clip has top-left (0.25, 0.25).)\n  • scale `[frame, width, height]` — clip's normalized width and height in 0–1 canvas coords (1.0 = fills the canvas axis). NOT a scale factor.\n  • crop `[frame, top, right, bottom, left]` — side insets in 0–1 of the source media.\n  • grade `[frame, {channels}, interp?]` — the value is an OBJECT with set_grade's channel vocabulary (exposure, contrast, hsl, curves, wheels, …), merged over the clip's current static grade; unspecified channels hold their static value. Example flash-to-warm: [[0, {}], [12, {\"exposure\": 1.5, \"temperature\": 40}], [24, {}]].\n\nMotion keyframes (position/scale/rotation) override the static `transform` value when active; grade keyframes override the static grade the same way.",
+            description: "Set animated keyframes on one property of one clip. Replaces the existing keyframe track for that property (pass an empty array to clear). Frames are CLIP-RELATIVE offsets (0 = first frame of the clip), so keyframes follow the clip when it moves. Rows are sorted by frame internally and the LAST row for any duplicate frame wins. Values must be finite numbers. Each row is `[frame, ...values, interp?]` where interp ∈ {linear, hold, smooth} (default smooth).\n\nProperties and their value layouts:\n  • volume `[frame, value]` — value 0.0–1.0\n  • opacity `[frame, value]` — value 0.0–1.0\n  • rotation `[frame, degrees]` — clockwise degrees\n  • position `[frame, topLeftX, topLeftY]` — TOP-LEFT corner in 0–1 normalized canvas coords. NOT the center. (Default static transform centers a full-canvas clip, so top-left of the static is (0, 0); a centered half-size clip has top-left (0.25, 0.25).)\n  • scale `[frame, width, height]` — clip's normalized width and height in 0–1 canvas coords (1.0 = fills the canvas axis). NOT a scale factor.\n  • crop `[frame, top, right, bottom, left]` — side insets in 0–1 of the source media.\n  • grade `[frame, {channels}, interp?]` — the value is an OBJECT with set_grade's channel vocabulary (exposure, contrast, hsl, curves, wheels, …), merged over the clip's current static grade; unspecified channels hold their static value. Example flash-to-warm: [[0, {}], [12, {\"exposure\": 1.5, \"temperature\": 40}], [24, {}]].\n  • mask `[frame, {fields}, interp?]` — OBJECT rows with set_mask's field vocabulary, merged over the static mask (shape/invert hold; scalars animate). Example sweeping reveal: [[0, {\"centerX\": -0.5}], [30, {\"centerX\": 1.5}]].\n\nMotion keyframes (position/scale/rotation) override the static `transform` value when active; grade keyframes override the static grade the same way.",
             inputSchema: objectSchema(
                 properties: [
                     "clipId": ["type": "string", "description": "The clip ID."],
                     "property": [
                         "type": "string",
-                        "enum": ["volume", "opacity", "rotation", "position", "scale", "crop", "grade"],
+                        "enum": ["volume", "opacity", "rotation", "position", "scale", "crop", "grade", "mask"],
                         "description": "Which property's keyframe track to set.",
                     ],
                     "keyframes": [
@@ -264,6 +265,30 @@ enum ToolDefinitions {
                     "curves": ["type": "object", "description": "Tone curves. Keys rgb/red/green/blue, each an array of [x,y] points in 0…1 (2–16 points, [] resets that channel). rgb is the combined luma curve."],
                     "wheels": ["type": "object", "description": "Color wheels. Keys lift/gamma/gain/offset, each {r?, g?, b?, luma?} in −1…1 (neutral 0). Only passed components change. {\"reset\": true} clears all wheels first."],
                     "reset": ["type": "boolean", "description": "Reset the grade to neutral before applying any channels above."],
+                ],
+                required: ["clipIds"]
+            )
+        ),
+        AgentTool(
+            name: .setMask,
+            description: "Limit WHERE a clip's color grade applies with a spatial mask (CapCut-style Adjust mask): the grade shows inside the shape, the original outside (invert flips that). Partial merge — pass only the fields you change; single undoable action across clipIds. The clip must also have a grade (set_grade / apply_look) for the mask to have any visible effect.\n\nShapes: linear (grades one side of a line — rotate to aim), mirror (a band around a line), radial (ellipse), rectangle, none (mask off).\n\nCoordinates are normalized to the clip's visible frame (0…1, y down), so the mask travels with the clip; on adjustment layers they span the whole canvas. width/height are the shape's extents (radial: the two radii; mirror: height = band thickness). rotation is degrees clockwise. feather 0…1 softens the edge. Masks are keyframable via set_keyframes property 'mask'.",
+            inputSchema: objectSchema(
+                properties: [
+                    "clipIds": [
+                        "type": "array",
+                        "description": "Clip IDs to mask.",
+                        "items": ["type": "string"],
+                    ],
+                    "shape": ["type": "string", "enum": ["none", "linear", "mirror", "radial", "rectangle"],
+                              "description": "Mask shape. 'none' disables the mask."],
+                    "centerX": ["type": "number", "description": "Mask center X, 0…1 of the clip frame."],
+                    "centerY": ["type": "number", "description": "Mask center Y, 0…1 of the clip frame (y down)."],
+                    "width": ["type": "number", "description": "Horizontal extent (radial: x radius; rectangle: width), 0.01…4."],
+                    "height": ["type": "number", "description": "Vertical extent (radial: y radius; rectangle: height; mirror: band thickness), 0.01…4."],
+                    "rotation": ["type": "number", "description": "Degrees clockwise, −360…360."],
+                    "feather": ["type": "number", "description": "Edge softness 0…1 (default 0.1)."],
+                    "invert": ["type": "boolean", "description": "Grade outside the shape instead of inside."],
+                    "reset": ["type": "boolean", "description": "Reset the mask to defaults (shape none) before applying fields."],
                 ],
                 required: ["clipIds"]
             )

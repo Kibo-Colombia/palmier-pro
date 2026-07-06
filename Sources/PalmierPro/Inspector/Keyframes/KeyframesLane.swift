@@ -267,6 +267,7 @@ struct KeyframesPanel: View {
         (.opacity,  "Opacity"),
         (.crop,     "Crop"),
         (.grade,    "Color"),
+        (.mask,     "Mask"),
     ]
     private static let audioRows: [(AnimatableProperty, String)] = [
         (.volume, "Volume"),

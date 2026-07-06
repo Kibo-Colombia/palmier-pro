@@ -88,6 +88,7 @@ final class EditorViewModel {
     /// Clip ids currently awaiting an AI-generated replacement.
     var pendingReplacements: Set<String> = []
     var cropEditingActive: Bool = false
+    var maskEditingActive: Bool = false
     var cropAspectLock: CropAspectLock = .free
     var previewTabs: [PreviewTab] = [.timeline]
     var activePreviewTabId: String = PreviewTab.timeline.id

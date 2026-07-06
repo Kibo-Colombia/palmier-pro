@@ -49,6 +49,8 @@ extension EditorViewModel {
                 clip.upsertKeyframe(in: \.volumeTrack, frame: f, value: currentDb)
             case .grade:
                 clip.upsertKeyframe(in: \.gradeTrack, frame: f, value: clip.gradeAt(frame: f))
+            case .mask:
+                clip.upsertKeyframe(in: \.maskTrack, frame: f, value: clip.maskAt(frame: f))
             }
         }
         undoManager?.setActionName("Add Keyframe")

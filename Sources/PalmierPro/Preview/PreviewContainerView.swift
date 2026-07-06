@@ -35,6 +35,8 @@ struct PreviewContainerView: View {
                     }
                     if editor.cropEditingActive {
                         CropOverlayView()
+                    } else if editor.maskEditingActive {
+                        MaskOverlayView()
                     } else {
                         TransformOverlayView()
                     }

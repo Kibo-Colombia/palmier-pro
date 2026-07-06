@@ -117,10 +117,28 @@ final class GradeCompositor: NSObject, AVVideoCompositing {
                 let sourceHeight = img.extent.height
 
                 // 1. Grade in the clip's own space (before geometry/opacity), per the chosen render order.
+                // An active mask limits the grade spatially: graded-over-original via CIBlendWithMask.
                 let grade = cr.clip.gradeAt(frame: frame)
-                let correction = cr.correctionCube
-                    ?? (grade.needsCorrectionCube ? GradeCubeCache.shared.correctionCube(for: grade) : nil)
-                img = Self.applyGrade(grade, cube: cr.cube, correctionCube: correction, to: img)
+                if !grade.isIdentity {
+                    let correction = cr.correctionCube
+                        ?? (grade.needsCorrectionCube ? GradeCubeCache.shared.correctionCube(for: grade) : nil)
+                    let graded = Self.applyGrade(grade, cube: cr.cube, correctionCube: correction, to: img)
+                    let mask = cr.clip.maskAt(frame: frame)
+                    if mask.isIdentity {
+                        img = graded
+                    } else {
+                        let displayToSourceCI = Self.flipY(cr.natSize.height)
+                            .concatenating(cr.preferredTransform.inverted())
+                            .concatenating(Self.flipY(sourceHeight))
+                        let maskImage = MaskRenderer.image(
+                            for: mask, natSize: cr.natSize,
+                            displayToSourceCI: displayToSourceCI, extent: img.extent)
+                        img = graded.applyingFilter("CIBlendWithMask", parameters: [
+                            kCIInputBackgroundImageKey: img,
+                            kCIInputMaskImageKey: maskImage,
+                        ])
+                    }
+                }
 
                 // 2. Crop (source space, top-left) → convert to CI bottom-left and clip.
                 let crop = cr.clip.cropAt(frame: frame)

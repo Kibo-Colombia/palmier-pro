@@ -138,6 +138,10 @@ final class EditorWindowController: NSWindowController {
                 editorViewModel.cropEditingActive = false
                 return true
             }
+            if editorViewModel.maskEditingActive {
+                editorViewModel.maskEditingActive = false
+                return true
+            }
             return false
 
         case 53: // Escape
@@ -147,6 +151,10 @@ final class EditorWindowController: NSWindowController {
             }
             if editorViewModel.cropEditingActive {
                 editorViewModel.cropEditingActive = false
+                return true
+            }
+            if editorViewModel.maskEditingActive {
+                editorViewModel.maskEditingActive = false
                 return true
             }
             if editorViewModel.maximizedPanel != nil {

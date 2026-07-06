@@ -3,7 +3,7 @@ import Sentry
 
 enum Telemetry {
     private static let dsn = Bundle.main.object(forInfoDictionaryKey: "SentryDSN") as? String ?? ""
-    private static let enabledKey = "io.palmier.pro.telemetry.enabled"
+    private static let enabledKey = "co.kibo.koma.telemetry.enabled"
 
     static var isEnabled: Bool {
         get {

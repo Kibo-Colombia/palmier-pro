@@ -52,6 +52,25 @@ fileprivate struct CurvesInput: Decodable {
     }
 }
 
+/// One wheel's partial adjustment (r/g/b/luma each −1…1); omitted components keep their value.
+fileprivate struct WheelInput: Decodable {
+    let r: Double?
+    let g: Double?
+    let b: Double?
+    let luma: Double?
+}
+
+/// Partial color wheels: only the wheels present are touched.
+fileprivate struct WheelsInput: Decodable {
+    let lift: WheelInput?
+    let gamma: WheelInput?
+    let gain: WheelInput?
+    let offset: WheelInput?
+    let reset: Bool?
+
+    var hasAnyField: Bool { lift != nil || gamma != nil || gain != nil || offset != nil || reset == true }
+}
+
 fileprivate struct SetGradeInput: DecodableToolArgs {
     let clipIds: [String]
     let exposure: Double?
@@ -72,13 +91,14 @@ fileprivate struct SetGradeInput: DecodableToolArgs {
     let intensity: Double?
     let hsl: HSLInput?
     let curves: CurvesInput?
+    let wheels: WheelsInput?
     let reset: Bool?
 
     static let allowedKeys: Set<String> = [
         "clipIds", "exposure", "brightness", "contrast", "saturation",
         "temperature", "tint", "hue", "highlights", "shadows", "fade",
         "sharpen", "clarity", "vignette", "lookIntensity", "protectSkinTone",
-        "intensity", "hsl", "curves", "reset",
+        "intensity", "hsl", "curves", "wheels", "reset",
     ]
 
     var hasAnyField: Bool {
@@ -87,13 +107,13 @@ fileprivate struct SetGradeInput: DecodableToolArgs {
             || shadows != nil || fade != nil || sharpen != nil || clarity != nil
             || vignette != nil || lookIntensity != nil || protectSkinTone != nil
             || intensity != nil || hsl?.hasAnyField == true || curves?.hasAnyField == true
-            || reset == true
+            || wheels?.hasAnyField == true || reset == true
     }
 }
 
 extension ToolExecutor {
     /// Channel clamp domains (mirrors the CIFilter-sane ranges in GradeCompositor).
-    private static func clampGrade(_ value: Double, _ range: ClosedRange<Double>) -> Double {
+    nonisolated private static func clampGrade(_ value: Double, _ range: ClosedRange<Double>) -> Double {
         min(range.upperBound, max(range.lowerBound, value))
     }
 
@@ -109,6 +129,14 @@ extension ToolExecutor {
         }
         if let rawCurves = args["curves"] as? [String: Any] {
             try validateUnknownKeys(rawCurves, allowed: ["rgb", "red", "green", "blue"], path: "set_grade.curves")
+        }
+        if let rawWheels = args["wheels"] as? [String: Any] {
+            try validateUnknownKeys(rawWheels, allowed: ["lift", "gamma", "gain", "offset", "reset"], path: "set_grade.wheels")
+            for (wheel, value) in rawWheels where wheel != "reset" {
+                if let components = value as? [String: Any] {
+                    try validateUnknownKeys(components, allowed: ["r", "g", "b", "luma"], path: "set_grade.wheels.\(wheel)")
+                }
+            }
         }
         let input: SetGradeInput = try decodeToolArgs(args, path: "set_grade")
         guard !input.clipIds.isEmpty else { throw ToolError("Missing or empty 'clipIds' array") }
@@ -161,6 +189,21 @@ extension ToolExecutor {
                     if let c = parsedCurves.red   { g.curves.red   = c; changed.append("curves.red \(c.count)pts") }
                     if let c = parsedCurves.green { g.curves.green = c; changed.append("curves.green \(c.count)pts") }
                     if let c = parsedCurves.blue  { g.curves.blue  = c; changed.append("curves.blue \(c.count)pts") }
+                    if let w = input.wheels {
+                        if w.reset == true { g.wheels = ColorWheels(); changed.append("wheels reset") }
+                        func merge(_ wheel: WheelInput?, into target: inout WheelAdjust, name: String) {
+                            guard let wheel else { return }
+                            if let v = wheel.r    { target.r    = Self.clampGrade(v, -1...1) }
+                            if let v = wheel.g    { target.g    = Self.clampGrade(v, -1...1) }
+                            if let v = wheel.b    { target.b    = Self.clampGrade(v, -1...1) }
+                            if let v = wheel.luma { target.luma = Self.clampGrade(v, -1...1) }
+                            changed.append("wheels.\(name)")
+                        }
+                        merge(w.lift, into: &g.wheels.lift, name: "lift")
+                        merge(w.gamma, into: &g.wheels.gamma, name: "gamma")
+                        merge(w.gain, into: &g.wheels.gain, name: "gain")
+                        merge(w.offset, into: &g.wheels.offset, name: "offset")
+                    }
                     if let h = input.hsl {
                         if h.reset == true { g.hsl = HSLAdjust(); changed.append("hsl reset") }
                         for (i, band) in h.bands {

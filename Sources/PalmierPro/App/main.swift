@@ -1,5 +1,7 @@
 import AppKit
 
+// Must run before anything lazily creates the new-name directories or reads defaults.
+KomaMigration.run()
 Log.bootstrap()
 Telemetry.start()
 BundledFonts.register()

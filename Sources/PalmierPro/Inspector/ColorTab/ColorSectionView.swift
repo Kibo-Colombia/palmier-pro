@@ -20,7 +20,7 @@ struct ColorSectionView: View {
                     case .basic:  ColorBasicTab(clips: clips)
                     case .hsl:    ColorHSLTab(clips: clips)
                     case .curves: ColorCurvesTab(clips: clips)
-                    case .wheels: comingSoon("Wheels")
+                    case .wheels: ColorWheelsTab(clips: clips)
                     case .mask:   comingSoon("Mask")
                     }
                 }

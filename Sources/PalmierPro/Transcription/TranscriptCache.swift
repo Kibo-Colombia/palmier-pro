@@ -106,10 +106,6 @@ actor TranscriptCache {
     }
 
     private static func key(for url: URL) -> String? {
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let size = (attrs[.size] as? NSNumber)?.int64Value,
-              let mtime = attrs[.modificationDate] as? Date else { return nil }
-        let identity = "\(url.path)|\(mtime.timeIntervalSince1970)|\(size)"
-        return SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined().prefix(32).description
+        AssetIdentity.key(for: url)
     }
 }

@@ -123,6 +123,43 @@ struct SetGradeToolTests {
         #expect(r2.isError)
     }
 
+    @Test func wheelsPartialMergeAndClamp() async throws {
+        let (h, id) = harness()
+        var r = await h.runRaw("set_grade", args: [
+            "clipIds": [id],
+            "wheels": ["lift": ["b": 0.15, "luma": -2.0],     // luma clamps to −1
+                       "gain": ["r": 0.12]],
+        ])
+        #expect(!r.isError, Comment(rawValue: ToolHarness.textOf(r)))
+        var g = grade(h, id)
+        #expect(g.wheels.lift.b == 0.15)
+        #expect(g.wheels.lift.luma == -1)
+        #expect(g.wheels.gain.r == 0.12)
+        #expect(g.wheels.gamma.isIdentity)     // untouched wheel
+        #expect(g.needsCorrectionCube)
+
+        // Partial merge: touching gamma keeps lift/gain; reset clears all first.
+        r = await h.runRaw("set_grade", args: [
+            "clipIds": [id], "wheels": ["gamma": ["luma": 0.3]],
+        ])
+        #expect(!r.isError)
+        g = grade(h, id)
+        #expect(g.wheels.lift.b == 0.15 && g.wheels.gamma.luma == 0.3)
+
+        r = await h.runRaw("set_grade", args: [
+            "clipIds": [id], "wheels": ["reset": true, "offset": ["g": 0.1]],
+        ])
+        #expect(!r.isError)
+        g = grade(h, id)
+        #expect(g.wheels.lift.isIdentity && g.wheels.gamma.isIdentity)
+        #expect(g.wheels.offset.g == 0.1)
+
+        let bad = await h.runRaw("set_grade", args: [
+            "clipIds": [id], "wheels": ["shadow": ["r": 1]],   // not a wheel name
+        ])
+        #expect(bad.isError)
+    }
+
     @Test func resetClearsExtendedChannels() async throws {
         let (h, id) = harness()
         _ = await h.runRaw("set_grade", args: [

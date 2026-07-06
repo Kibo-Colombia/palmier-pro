@@ -59,7 +59,7 @@ struct GradeSliderRow: View {
 /// The muted scrub-hint line shown under a slider stack.
 struct GradeScrubHint: View {
     var body: some View {
-        Text("Drag a value up/down to change it · ⇧ finer · right-click resets")
+        Text("Click or drag along a slider · ⇧ drag for fine · right-click resets · click the number to type")
             .font(.system(size: AppTheme.FontSize.xxs))
             .foregroundStyle(AppTheme.Text.mutedColor)
             .padding(.top, AppTheme.Spacing.xxs)

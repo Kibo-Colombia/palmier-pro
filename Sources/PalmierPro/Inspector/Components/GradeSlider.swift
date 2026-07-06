@@ -1,11 +1,11 @@
 import AppKit
 import SwiftUI
 
-/// A compact color-grade control: a horizontal track (fill + neutral tick + thumb) and a value,
-/// scrubbed by dragging **vertically** (up = increase). Vertical because the inspector is docked on
-/// the right with no room to drag horizontally. The throw is long for precision (hold ⇧ for finer);
-/// click the value to type; right-click to reset to neutral. An AppKit mouse area drives the drag so
-/// it never fights the inspector's scroll view.
+/// A compact horizontal slider for color-grade channels: label · track (fill + neutral tick +
+/// thumb) · value. The thumb follows the pointer — click anywhere on the track to jump, drag to
+/// slide; hold ⇧ while dragging for fine relative adjustment; right-click resets to neutral;
+/// click the value to type. An AppKit mouse area drives the track so the drag never fights the
+/// inspector's scroll view.
 struct GradeSlider: View {
     let label: String
     let value: Double?                 // nil = mixed selection
@@ -14,14 +14,11 @@ struct GradeSlider: View {
     var format: String = "%.2f"
     var displayMultiplier: Double = 1
     var valueSuffix: String = ""
-    /// Vertical points to traverse the whole range — bigger = finer / longer throw.
-    var throwPoints: CGFloat = 480
     var onChanged: (Double) -> Void
     var onCommit: (Double) -> Void
     var onReset: () -> Void
 
     @State private var isDragging = false
-    @State private var dragStartValue = 0.0
     @State private var liveValue = 0.0
     @State private var isEditing = false
     @State private var editText = ""
@@ -46,8 +43,6 @@ struct GradeSlider: View {
             valueLabel
         }
         .frame(height: 22)
-        .contentShape(Rectangle())
-        .overlay { if !isEditing { scrubArea } }
         .onAppear { liveValue = value ?? neutral }
         .onChange(of: value) { _, new in if !isDragging { liveValue = new ?? liveValue } }
         .onChange(of: editFocused) { _, focused in if !focused && isEditing { commitEdit(); isEditing = false } }
@@ -68,8 +63,43 @@ struct GradeSlider: View {
                     .offset(x: Swift.max(0, Swift.min(w - 9, w * fraction - 4.5)))
             }
             .frame(maxHeight: .infinity, alignment: .center)
+            .contentShape(Rectangle())
+            .overlay {
+                HorizontalScrubArea(
+                    canScrub: true,
+                    onDragStart: { x, mods in
+                        liveValue = value ?? liveValue
+                        isDragging = true
+                        // Plain press jumps the thumb to the pointer; ⇧ keeps the current
+                        // value so the fine drag adjusts from where it was.
+                        if !mods.contains(.shift) {
+                            update(valueAtX(x, width: w))
+                        }
+                    },
+                    onDragChanged: { x, dx, mods in
+                        guard isDragging else { return }
+                        if mods.contains(.shift) {
+                            update(clampToRange(liveValue + Double(dx) * span / Double(Swift.max(1, w)) / 8))
+                        } else {
+                            update(valueAtX(x, width: w))
+                        }
+                    },
+                    onDragEnd: {
+                        if isDragging { onCommit(liveValue); isDragging = false }
+                    },
+                    onReset: onReset
+                )
+            }
         }
         .frame(height: 22)
+    }
+
+    private func valueAtX(_ x: CGFloat, width: CGFloat) -> Double {
+        range.lowerBound + span * clamp01(Double(x / Swift.max(1, width)))
+    }
+
+    private func update(_ next: Double) {
+        if next != liveValue { liveValue = next; onChanged(next) }
     }
 
     private var valueLabel: some View {
@@ -88,25 +118,16 @@ struct GradeSlider: View {
                 Text(displayText)
                     .font(.system(size: AppTheme.FontSize.xs, weight: .medium).monospacedDigit())
                     .foregroundStyle(isMixed ? AppTheme.Text.tertiaryColor : AppTheme.Accent.primary)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        editText = isMixed ? "" : String(format: format, current * displayMultiplier)
+                        isEditing = true
+                    }
+                    .contextMenu { Button("Reset") { onReset() } }
+                    .help("Click to type a value")
             }
         }
         .frame(width: 48, alignment: .trailing)
-    }
-
-    private var scrubArea: some View {
-        VerticalScrubArea(
-            canScrub: !isMixed,
-            onDragStart: { dragStartValue = value ?? liveValue; isDragging = true },
-            onDragChanged: { dy, mods in
-                var perPoint = span / Double(throwPoints)
-                if mods.contains(.shift) { perPoint /= 5 }   // finer
-                let next = clampToRange(dragStartValue + Double(dy) * perPoint)
-                if next != liveValue { liveValue = next; onChanged(next) }
-            },
-            onDragEnd: { if isDragging { onCommit(liveValue); isDragging = false } },
-            onClick: { editText = isMixed ? "" : String(format: format, current * displayMultiplier); isEditing = true },
-            onReset: onReset
-        )
     }
 
     private func commitEdit() {
@@ -125,14 +146,14 @@ struct GradeSlider: View {
     private func clamp01(_ v: Double) -> Double { Swift.min(1, Swift.max(0, v)) }
 }
 
-/// AppKit mouse area for vertical scrubbing: up = increase. Bypasses SwiftUI gestures so a vertical
-/// drag scrubs instead of scrolling the enclosing ScrollView. Left-click (no drag) types; right-click resets.
-private struct VerticalScrubArea: NSViewRepresentable {
+/// AppKit mouse area for horizontal slider scrubbing. Reports x in the view's own coordinates
+/// (left = 0) plus per-event deltas for ⇧-fine mode. Bypasses SwiftUI gestures so the press
+/// starts scrubbing immediately without wrestling the enclosing ScrollView. Right-click resets.
+private struct HorizontalScrubArea: NSViewRepresentable {
     var canScrub: Bool
-    var onDragStart: () -> Void
-    var onDragChanged: (CGFloat, NSEvent.ModifierFlags) -> Void
+    var onDragStart: (CGFloat, NSEvent.ModifierFlags) -> Void
+    var onDragChanged: (CGFloat, CGFloat, NSEvent.ModifierFlags) -> Void
     var onDragEnd: () -> Void
-    var onClick: () -> Void
     var onReset: () -> Void
 
     func makeNSView(context: Context) -> Area { let v = Area(); apply(v); return v }
@@ -140,35 +161,40 @@ private struct VerticalScrubArea: NSViewRepresentable {
     private func apply(_ v: Area) {
         v.canScrub = canScrub
         v.onDragStart = onDragStart; v.onDragChanged = onDragChanged; v.onDragEnd = onDragEnd
-        v.onClick = onClick; v.onReset = onReset
+        v.onReset = onReset
     }
 
     final class Area: NSView {
         var canScrub = true
-        var onDragStart: (() -> Void)?
-        var onDragChanged: ((CGFloat, NSEvent.ModifierFlags) -> Void)?
+        var onDragStart: ((CGFloat, NSEvent.ModifierFlags) -> Void)?
+        var onDragChanged: ((CGFloat, CGFloat, NSEvent.ModifierFlags) -> Void)?
         var onDragEnd: (() -> Void)?
-        var onClick: (() -> Void)?
         var onReset: (() -> Void)?
 
-        private var startY: CGFloat = 0
-        private var dragging = false
+        private var lastX: CGFloat = 0
+        private var active = false
 
         override var acceptsFirstResponder: Bool { false }
-        override func resetCursorRects() { addCursorRect(bounds, cursor: .resizeUpDown) }
+        override func resetCursorRects() { addCursorRect(bounds, cursor: .resizeLeftRight) }
 
-        override func mouseDown(with e: NSEvent) { startY = e.locationInWindow.y; dragging = false }
+        override func mouseDown(with e: NSEvent) {
+            guard canScrub else { return }
+            let x = convert(e.locationInWindow, from: nil).x
+            lastX = x
+            active = true
+            onDragStart?(x, e.modifierFlags)
+        }
 
         override func mouseDragged(with e: NSEvent) {
-            guard canScrub else { return }
-            let dy = e.locationInWindow.y - startY   // AppKit y increases upward → up = positive = increase
-            if !dragging && abs(dy) > 3 { dragging = true; onDragStart?() }
-            if dragging { onDragChanged?(dy, e.modifierFlags) }
+            guard canScrub, active else { return }
+            let x = convert(e.locationInWindow, from: nil).x
+            onDragChanged?(x, x - lastX, e.modifierFlags)
+            lastX = x
         }
 
         override func mouseUp(with e: NSEvent) {
-            if dragging { onDragEnd?() } else { onClick?() }
-            dragging = false
+            if active { onDragEnd?() }
+            active = false
         }
 
         override func rightMouseDown(with e: NSEvent) { onReset?() }

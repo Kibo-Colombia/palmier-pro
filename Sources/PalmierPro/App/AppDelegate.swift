@@ -17,6 +17,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppNotifications.configure()
 
         AppState.shared.startMCPService()
+
+        // Always-on library understanding: watch the roots and index new footage without
+        // requiring the Library tab.
+        RootsWatcher.shared.start()
     }
 
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {

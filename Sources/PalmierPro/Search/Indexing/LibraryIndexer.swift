@@ -47,14 +47,37 @@ final class LibraryIndexer {
     ]
 
     private var task: Task<Void, Never>?
+    private var rerunRequested = false
 
-    /// Index + transcribe any not-yet-processed videos among `urls`. Idempotent — a second call
-    /// while running is ignored; already-processed files are skipped cheaply via on-disk sidecars.
-    func ensureIndexed(_ urls: [URL]) {
-        guard task == nil, !urls.isEmpty else { return }
+    /// What asked for indexing. `automatic` (FSEvents / launch) defers politely under
+    /// thermal pressure or Low Power Mode; `manual` (opening the Library tab) always runs.
+    enum Trigger { case manual, automatic }
+
+    /// Index + transcribe any not-yet-processed videos among `urls`. Idempotent — files that
+    /// arrive while a run is live are picked up by one follow-up pass; already-processed
+    /// files are skipped cheaply via on-disk sidecars.
+    func ensureIndexed(_ urls: [URL], trigger: Trigger = .manual) {
+        if trigger == .automatic {
+            let info = ProcessInfo.processInfo
+            guard info.thermalState != .serious, info.thermalState != .critical,
+                  !info.isLowPowerModeEnabled else {
+                Log.search.notice("auto-index deferred (thermal/low-power) — next event or Library open retries")
+                return
+            }
+        }
+        guard !urls.isEmpty else { return }
+        guard task == nil else {
+            rerunRequested = true
+            return
+        }
         task = Task { [weak self] in
             await self?.run(urls)
-            self?.task = nil
+            guard let self else { return }
+            self.task = nil
+            if self.rerunRequested {
+                self.rerunRequested = false
+                self.ensureIndexed(RootsRegistry.shared.files, trigger: trigger)
+            }
         }
     }
 

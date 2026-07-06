@@ -8,12 +8,12 @@
 	<array>
 		<dict>
 			<key>CFBundleTypeName</key>
-			<string>Palmier Project</string>
+			<string>Koma Project</string>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>io.palmier.project</string>
+				<string>co.kibo.koma.project</string>
 			</array>
 			<key>LSTypeIsPackage</key>
 			<true/>
@@ -26,7 +26,7 @@
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
-	<string>io.palmier.pro</string>
+	<string>co.kibo.koma</string>
 	<key>CFBundleName</key>
 	<string>Koma</string>
 	<key>CFBundlePackageType</key>
@@ -37,9 +37,10 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>io.palmier.pro</string>
+			<string>co.kibo.koma</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
+				<string>koma</string>
 				<string>palmier</string>
 			</array>
 		</dict>
@@ -64,9 +65,9 @@
 				<string>com.apple.package</string>
 			</array>
 			<key>UTTypeDescription</key>
-			<string>Palmier Project</string>
+			<string>Koma Project</string>
 			<key>UTTypeIdentifier</key>
-			<string>io.palmier.project</string>
+			<string>co.kibo.koma.project</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>

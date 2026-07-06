@@ -30,6 +30,28 @@ fileprivate struct HSLInput: Decodable {
     var hasAnyField: Bool { !bands.isEmpty || reset == true }
 }
 
+/// Partial tone curves: only channels present are replaced. Each channel is a list of
+/// [x, y] pairs in 0…1; an empty list resets that channel to identity.
+fileprivate struct CurvesInput: Decodable {
+    let rgb: [[Double]]?
+    let red: [[Double]]?
+    let green: [[Double]]?
+    let blue: [[Double]]?
+
+    var hasAnyField: Bool { rgb != nil || red != nil || green != nil || blue != nil }
+
+    /// Validate and convert one channel's raw pairs into sorted CurvePoints.
+    static func parseChannel(_ raw: [[Double]], name: String) throws -> [CurvePoint] {
+        guard raw.count <= 16 else { throw ToolError("set_grade.curves.\(name): at most 16 points") }
+        if !raw.isEmpty && raw.count < 2 { throw ToolError("set_grade.curves.\(name): need at least 2 points (or [] to reset)") }
+        let pts = try raw.map { pair -> CurvePoint in
+            guard pair.count == 2 else { throw ToolError("set_grade.curves.\(name): each point must be [x, y]") }
+            return CurvePoint(x: min(1, max(0, pair[0])), y: min(1, max(0, pair[1])))
+        }
+        return pts.sorted { $0.x < $1.x }
+    }
+}
+
 fileprivate struct SetGradeInput: DecodableToolArgs {
     let clipIds: [String]
     let exposure: Double?
@@ -49,13 +71,14 @@ fileprivate struct SetGradeInput: DecodableToolArgs {
     let protectSkinTone: Bool?
     let intensity: Double?
     let hsl: HSLInput?
+    let curves: CurvesInput?
     let reset: Bool?
 
     static let allowedKeys: Set<String> = [
         "clipIds", "exposure", "brightness", "contrast", "saturation",
         "temperature", "tint", "hue", "highlights", "shadows", "fade",
         "sharpen", "clarity", "vignette", "lookIntensity", "protectSkinTone",
-        "intensity", "hsl", "reset",
+        "intensity", "hsl", "curves", "reset",
     ]
 
     var hasAnyField: Bool {
@@ -63,7 +86,8 @@ fileprivate struct SetGradeInput: DecodableToolArgs {
             || temperature != nil || tint != nil || hue != nil || highlights != nil
             || shadows != nil || fade != nil || sharpen != nil || clarity != nil
             || vignette != nil || lookIntensity != nil || protectSkinTone != nil
-            || intensity != nil || hsl?.hasAnyField == true || reset == true
+            || intensity != nil || hsl?.hasAnyField == true || curves?.hasAnyField == true
+            || reset == true
     }
 }
 
@@ -74,7 +98,7 @@ extension ToolExecutor {
     }
 
     func setGrade(_ editor: EditorViewModel, _ args: [String: Any]) throws -> ToolResult {
-        // JSONDecoder silently drops unknown keys — reject misspelled band names explicitly.
+        // JSONDecoder silently drops unknown keys — reject misspelled band/channel names explicitly.
         if let rawHSL = args["hsl"] as? [String: Any] {
             try validateUnknownKeys(rawHSL, allowed: Set(HSLAdjust.bandNames + ["reset"]), path: "set_grade.hsl")
             for (band, value) in rawHSL where band != "reset" {
@@ -82,6 +106,9 @@ extension ToolExecutor {
                     try validateUnknownKeys(components, allowed: ["hue", "saturation", "luminance"], path: "set_grade.hsl.\(band)")
                 }
             }
+        }
+        if let rawCurves = args["curves"] as? [String: Any] {
+            try validateUnknownKeys(rawCurves, allowed: ["rgb", "red", "green", "blue"], path: "set_grade.curves")
         }
         let input: SetGradeInput = try decodeToolArgs(args, path: "set_grade")
         guard !input.clipIds.isEmpty else { throw ToolError("Missing or empty 'clipIds' array") }
@@ -97,6 +124,14 @@ extension ToolExecutor {
                 throw ToolError("Cannot grade an audio clip: \(id)")
             }
         }
+
+        // Parse curve channels up front so malformed input fails before any clip mutates.
+        let parsedCurves: (rgb: [CurvePoint]?, red: [CurvePoint]?, green: [CurvePoint]?, blue: [CurvePoint]?) = (
+            try input.curves?.rgb.map   { try CurvesInput.parseChannel($0, name: "rgb") },
+            try input.curves?.red.map   { try CurvesInput.parseChannel($0, name: "red") },
+            try input.curves?.green.map { try CurvesInput.parseChannel($0, name: "green") },
+            try input.curves?.blue.map  { try CurvesInput.parseChannel($0, name: "blue") }
+        )
 
         let actionName = input.clipIds.count == 1 ? "Color Grade (Agent)" : "Color Grade \(input.clipIds.count) Clips (Agent)"
         let summaries: [String] = withUndoGroup(editor, actionName: actionName) {
@@ -122,6 +157,10 @@ extension ToolExecutor {
                     if let v = input.lookIntensity { g.lookIntensity = Self.clampGrade(v, 0...1); changed.append("lookIntensity \(fmt(g.lookIntensity))") }
                     if let v = input.protectSkinTone { g.protectSkinTone = v ? 1 : 0; changed.append("protectSkinTone \(v ? "on" : "off")") }
                     if let v = input.intensity   { g.intensity   = Self.clampGrade(v, 0...1);    changed.append("intensity \(fmt(g.intensity))") }
+                    if let c = parsedCurves.rgb   { g.curves.rgb   = c; changed.append("curves.rgb \(c.count)pts") }
+                    if let c = parsedCurves.red   { g.curves.red   = c; changed.append("curves.red \(c.count)pts") }
+                    if let c = parsedCurves.green { g.curves.green = c; changed.append("curves.green \(c.count)pts") }
+                    if let c = parsedCurves.blue  { g.curves.blue  = c; changed.append("curves.blue \(c.count)pts") }
                     if let h = input.hsl {
                         if h.reset == true { g.hsl = HSLAdjust(); changed.append("hsl reset") }
                         for (i, band) in h.bands {

@@ -82,6 +82,47 @@ struct SetGradeToolTests {
         #expect(g.hsl.luminance[3] == 0.4)     // green = band 3
     }
 
+    @Test func curvesApplySortAndReset() async throws {
+        let (h, id) = harness()
+        var r = await h.runRaw("set_grade", args: [
+            "clipIds": [id],
+            // Deliberately unsorted; also touches red.
+            "curves": ["rgb": [[0.75, 0.8], [0.0, 0.0], [0.25, 0.2], [1.0, 1.0]],
+                       "red": [[0.0, 0.1], [1.0, 0.9]]],
+        ])
+        #expect(!r.isError, Comment(rawValue: ToolHarness.textOf(r)))
+        var g = grade(h, id)
+        #expect(g.curves.rgb.count == 4)
+        #expect(g.curves.rgb.map(\.x) == g.curves.rgb.map(\.x).sorted())   // sorted by x
+        #expect(g.curves.red.first?.y == 0.1)
+        #expect(!g.curves.isIdentity)
+        #expect(g.needsCorrectionCube)
+
+        // Empty array resets one channel; the other channel persists.
+        r = await h.runRaw("set_grade", args: ["clipIds": [id], "curves": ["rgb": [Any]()]])
+        #expect(!r.isError)
+        g = grade(h, id)
+        #expect(g.curves.rgb.isEmpty)
+        #expect(g.curves.red.count == 2)
+    }
+
+    @Test func malformedCurvesRejectedBeforeMutation() async {
+        let (h, id) = harness()
+        // Single point is invalid — and the valid fade in the same call must NOT apply.
+        let r = await h.runRaw("set_grade", args: [
+            "clipIds": [id], "fade": 0.9,
+            "curves": ["rgb": [[0.5, 0.5]]],
+        ])
+        #expect(r.isError)
+        #expect(grade(h, id).fade == 0)
+
+        let r2 = await h.runRaw("set_grade", args: [
+            "clipIds": [id],
+            "curves": ["cyan": [[0.0, 0.0], [1.0, 1.0]]],   // not a curve channel
+        ])
+        #expect(r2.isError)
+    }
+
     @Test func resetClearsExtendedChannels() async throws {
         let (h, id) = harness()
         _ = await h.runRaw("set_grade", args: [

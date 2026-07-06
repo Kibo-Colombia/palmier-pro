@@ -106,7 +106,7 @@ enum Project {
     static let registryFilename = "project-registry.json"
     static let rootsRegistryFilename = "roots-registry.json"
     static let spacesRegistryFilename = "spaces-registry.json"
-    static let typeIdentifier = "io.palmier.project"
+    static let typeIdentifier = "co.kibo.koma.project"
     static let defaultProjectName = "Untitled Project"
     static let timelineFilename = "project.json"
     static let manifestFilename = "media.json"
@@ -116,7 +116,7 @@ enum Project {
 
     static let storageDirectory: URL = {
         let url = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents/Palmier Pro", isDirectory: true)
+            .appendingPathComponent("Documents/Koma", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }()

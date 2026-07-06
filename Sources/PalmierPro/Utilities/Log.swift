@@ -5,9 +5,11 @@ import os
 /// Categorized logger + crash handler.
 ///
 /// Uncaught exceptions and fatal signals are written to
-/// `~/Library/Logs/PalmierPro/crash.log` with a backtrace.
+/// `~/Library/Logs/Koma/crash.log` with a backtrace.
 enum Log {
-    static let subsystem  = "io.palmier.pro"
+    /// Also names the on-disk cache root (`~/Library/Caches/<subsystem>/…`) for every
+    /// sidecar store. Renaming it requires a matching directory move in `KomaMigration`.
+    static let subsystem  = "co.kibo.koma"
     static let app        = CategoryLog("app")
     static let editor     = CategoryLog("editor")
     static let export     = CategoryLog("export")
@@ -19,7 +21,7 @@ enum Log {
     static let search     = CategoryLog("search")
 
     static let crashLogURL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Logs/PalmierPro/crash.log")
+        .appendingPathComponent("Library/Logs/Koma/crash.log")
 
     /// Call once at launch, before `NSApplication.run()`.
     static func bootstrap() {

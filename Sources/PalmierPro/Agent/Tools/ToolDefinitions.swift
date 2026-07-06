@@ -13,6 +13,9 @@ enum ToolName: String, CaseIterable, Sendable {
     case setGrade = "set_grade"
     case setMask = "set_mask"
     case addAdjustmentLayer = "add_adjustment_layer"
+    case saveGradePreset = "save_grade_preset"
+    case listGradePresets = "list_grade_presets"
+    case applyGradePreset = "apply_grade_preset"
     case applyLook = "apply_look"
     case listLooks = "list_looks"
     case importLook = "import_look"
@@ -304,6 +307,34 @@ enum ToolDefinitions {
                     "trackIndex": ["type": "integer", "description": "Video track to place it on (0 = frontmost). Omit to create a new track above all — it then affects the entire stack."],
                 ],
                 required: ["startFrame", "durationFrames"]
+            )
+        ),
+        AgentTool(
+            name: .saveGradePreset,
+            description: "Save a clip's current color grade as a named, reusable preset (persists across projects, appears under 'My presets' in the inspector). Captures the STATIC grade only — keyframes and masks are not included. Rejects clips with a neutral grade.",
+            inputSchema: objectSchema(
+                properties: [
+                    "name": ["type": "string", "description": "Display name for the preset."],
+                    "clipId": ["type": "string", "description": "Clip whose grade to snapshot."],
+                ],
+                required: ["name", "clipId"]
+            )
+        ),
+        AgentTool(
+            name: .listGradePresets,
+            description: "List the user's saved grade presets: id, name, and which channel groups each one adjusts. Use the id with apply_grade_preset.",
+            inputSchema: objectSchema(properties: [:], required: [])
+        ),
+        AgentTool(
+            name: .applyGradePreset,
+            description: "Apply a saved grade preset to one or more clips (REPLACES each clip's whole grade; masks and keyframes are untouched). Optional intensity (0…1) sets the applied grade's global wet/dry mix. Single undoable action.",
+            inputSchema: objectSchema(
+                properties: [
+                    "presetId": ["type": "string", "description": "Preset id from list_grade_presets."],
+                    "clipIds": ["type": "array", "description": "Clips to grade.", "items": ["type": "string"]],
+                    "intensity": ["type": "number", "description": "Wet/dry mix 0…1 (default: the preset's own)."],
+                ],
+                required: ["presetId", "clipIds"]
             )
         ),
         AgentTool(

@@ -316,6 +316,39 @@ struct SetGradeToolTests {
         #expect(await h2.runRaw("add_adjustment_layer", args: ["startFrame": 0, "durationFrames": 30, "trackIndex": 0]).isError)
     }
 
+    @Test func gradePresetToolsRoundTrip() async throws {
+        let (h, id) = harness()
+        _ = await h.runRaw("set_grade", args: ["clipIds": [id], "fade": 0.3, "temperature": 25.0])
+
+        // Save, list, apply to a second clip, then clean up the shared store.
+        let save = await h.runRaw("save_grade_preset", args: ["name": "Test Warm Fade", "clipId": id])
+        #expect(!save.isError, Comment(rawValue: ToolHarness.textOf(save)))
+        let savedId = try #require(GradePresetStore.shared.all().first { $0.name == "Test Warm Fade" }?.id)
+        defer { try? GradePresetStore.shared.delete(id: savedId) }
+
+        let list = try await h.runOK("list_grade_presets") as? [String: Any]
+        let rows = try #require(list?["presets"] as? [[String: Any]])
+        #expect(rows.contains { $0["id"] as? String == savedId })
+
+        var clip2 = Fixtures.clip(id: "c2", start: 60, duration: 30)
+        clip2.mediaType = .video
+        h.editor.timeline.tracks[0].clips.append(clip2)
+        let apply = await h.runRaw("apply_grade_preset", args: [
+            "presetId": savedId, "clipIds": ["c2"], "intensity": 0.5,
+        ])
+        #expect(!apply.isError, Comment(rawValue: ToolHarness.textOf(apply)))
+        let g2 = grade(h, "c2")
+        #expect(g2.fade == 0.3 && g2.temperature == 25)
+        #expect(g2.intensity == 0.5)
+
+        // Neutral-grade clips can't be saved; unknown preset ids are rejected.
+        #expect(await h.runRaw("save_grade_preset", args: ["name": "X", "clipId": "c2"]).isError == false)
+        if let extra = GradePresetStore.shared.all().first(where: { $0.name == "X" }) {
+            try? GradePresetStore.shared.delete(id: extra.id)
+        }
+        #expect(await h.runRaw("apply_grade_preset", args: ["presetId": "nope", "clipIds": [id]]).isError)
+    }
+
     @Test func audioClipRejected() async {
         let clip = Fixtures.clip(id: "a1", mediaType: .audio, start: 0, duration: 60)
         let h = ToolHarness(timeline: Fixtures.timeline(tracks: [Fixtures.audioTrack(clips: [clip])]))

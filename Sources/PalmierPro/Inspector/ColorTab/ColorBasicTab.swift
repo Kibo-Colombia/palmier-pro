@@ -10,6 +10,7 @@ struct ColorBasicTab: View {
     let clips: [Clip]
 
     @State private var looksVersion = 0   // bumped to refresh the strip after a .cube import
+    @State private var presetsVersion = 0 // bumped after saving/deleting a grade preset
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
@@ -57,7 +58,127 @@ struct ColorBasicTab: View {
             }
 
             GradeScrubHint()
-            autoColorButton
+            presetsStrip
+            HStack(spacing: AppTheme.Spacing.sm) {
+                autoColorButton
+                savePresetButton
+                applyToAllButton
+            }
+        }
+    }
+
+    // MARK: - Grade presets (user-saved)
+
+    @ViewBuilder
+    private var presetsStrip: some View {
+        let presets = GradePresetStore.shared.all()
+        if !presets.isEmpty {
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
+                Text("My presets")
+                    .font(.system(size: AppTheme.FontSize.xxs, weight: .medium))
+                    .foregroundStyle(AppTheme.Text.mutedColor)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: AppTheme.Spacing.sm) {
+                        ForEach(presets) { preset in
+                            lookChip(name: preset.name, colors: presetSwatch(preset), selected: false) {
+                                applyPreset(preset)
+                            }
+                            .contextMenu {
+                                Button("Delete Preset", role: .destructive) {
+                                    try? GradePresetStore.shared.delete(id: preset.id)
+                                    presetsVersion += 1
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, AppTheme.Spacing.xxs)
+                }
+            }
+            .id(presetsVersion)
+        }
+    }
+
+    /// Grays pushed through the preset's full grade (LUT included) — pure math, no CI render.
+    private func presetSwatch(_ preset: GradePresetStore.GradePreset) -> [Color] {
+        let cube = preset.grade.lut.flatMap { LUTStore.shared.cube(for: $0, resolveURL: { _ in nil }) }
+        return GradeMath.swatchColors(for: preset.grade, lut: cube).map {
+            Color(red: Double($0.0), green: Double($0.1), blue: Double($0.2))
+        }
+    }
+
+    private func applyPreset(_ preset: GradePresetStore.GradePreset) {
+        commitGradeToClips(editor, clips, actionName: "Apply Grade Preset") { c in
+            editor.commitClipProperty(clipId: c.id) { $0.grade = preset.grade }
+        }
+    }
+
+    private var savePresetButton: some View {
+        Button {
+            savePresetFromUI()
+        } label: {
+            HStack(spacing: AppTheme.Spacing.xs) {
+                Image(systemName: "square.and.arrow.down").font(.system(size: AppTheme.FontSize.xs, weight: .medium))
+                Text("Save preset").font(.system(size: AppTheme.FontSize.xs, weight: .medium))
+            }
+            .foregroundStyle(AppTheme.Text.secondaryColor)
+            .padding(.horizontal, AppTheme.Spacing.smMd)
+            .padding(.vertical, AppTheme.Spacing.xs)
+            .background(RoundedRectangle(cornerRadius: AppTheme.Radius.sm).fill(Color.white.opacity(AppTheme.Opacity.subtle)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(clips.first.map(\.grade.isIdentity) ?? true)
+        .help("Save this clip's grade as a reusable preset")
+    }
+
+    private func savePresetFromUI() {
+        guard let grade = clips.first?.grade, !grade.isIdentity else { return }
+        let alert = NSAlert()
+        alert.messageText = "Save Grade Preset"
+        alert.informativeText = "Name this look — it will appear under My presets in every project."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
+        field.placeholderString = "Preset name"
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        if (try? GradePresetStore.shared.save(name: field.stringValue, grade: grade)) != nil {
+            presetsVersion += 1
+        }
+    }
+
+    // MARK: - Apply to all
+
+    private var applyToAllButton: some View {
+        Button {
+            applyToAllClips()
+        } label: {
+            HStack(spacing: AppTheme.Spacing.xs) {
+                Image(systemName: "square.on.square").font(.system(size: AppTheme.FontSize.xs, weight: .medium))
+                Text("Apply to all").font(.system(size: AppTheme.FontSize.xs, weight: .medium))
+            }
+            .foregroundStyle(AppTheme.Text.secondaryColor)
+            .padding(.horizontal, AppTheme.Spacing.smMd)
+            .padding(.vertical, AppTheme.Spacing.xs)
+            .background(RoundedRectangle(cornerRadius: AppTheme.Radius.sm).fill(Color.white.opacity(AppTheme.Opacity.subtle)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(clips.first.map(\.grade.isIdentity) ?? true)
+        .help("Copy this clip's grade to every clip in the timeline")
+    }
+
+    /// CapCut behavior: copies the STATIC grade to every gradable clip (text clips don't
+    /// render a grade; adjustment layers keep their own so effects don't double up).
+    private func applyToAllClips() {
+        guard let grade = clips.first?.grade else { return }
+        let targets = editor.timeline.tracks.flatMap(\.clips).filter {
+            $0.mediaType.isVisual && $0.mediaType != .text && $0.mediaType != .adjustment
+        }
+        guard !targets.isEmpty else { return }
+        commitGradeToClips(editor, targets, actionName: "Apply Grade to All") { c in
+            editor.commitClipProperty(clipId: c.id) { $0.grade = grade }
         }
     }
 

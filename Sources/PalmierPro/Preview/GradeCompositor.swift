@@ -23,7 +23,17 @@ struct GradeClipRender: Sendable {
     let clip: Clip                          // Sendable; provides transformAt/cropAt/opacityAt/gradeAt
     let natSize: CGSize                     // display (oriented) size — matches CompositionBuilder.affineTransform input
     let preferredTransform: CGAffineTransform
-    let cube: LUTCube?                      // resolved at instruction-build time so the compositor never touches disk
+    let cube: LUTCube?                      // resolved (and skin-protected) at instruction-build time so the compositor never touches disk
+    let correctionCube: LUTCube?            // pre-baked for STATIC grades; nil when keyframed (fetched from GradeCubeCache per frame)
+
+    init(clip: Clip, natSize: CGSize, preferredTransform: CGAffineTransform,
+         cube: LUTCube?, correctionCube: LUTCube? = nil) {
+        self.clip = clip
+        self.natSize = natSize
+        self.preferredTransform = preferredTransform
+        self.cube = cube
+        self.correctionCube = correctionCube
+    }
 }
 
 struct GradeTrackRender: Sendable {
@@ -107,7 +117,10 @@ final class GradeCompositor: NSObject, AVVideoCompositing {
                 let sourceHeight = img.extent.height
 
                 // 1. Grade in the clip's own space (before geometry/opacity), per the chosen render order.
-                img = Self.applyGrade(cr.clip.gradeAt(frame: frame), cube: cr.cube, to: img)
+                let grade = cr.clip.gradeAt(frame: frame)
+                let correction = cr.correctionCube
+                    ?? (grade.needsCorrectionCube ? GradeCubeCache.shared.correctionCube(for: grade) : nil)
+                img = Self.applyGrade(grade, cube: cr.cube, correctionCube: correction, to: img)
 
                 // 2. Crop (source space, top-left) → convert to CI bottom-left and clip.
                 let crop = cr.clip.cropAt(frame: frame)
@@ -124,6 +137,20 @@ final class GradeCompositor: NSObject, AVVideoCompositing {
                                         width: displayRect.width,
                                         height: displayRect.height)
                     img = img.cropped(to: ciRect)
+                }
+
+                // 2b. Vignette on the visible (post-crop) extent — pre-crop it would sit off-center
+                // on cropped clips. CIVignetteEffect with an explicit center keeps it symmetric.
+                if grade.vignette > 0 {
+                    let ext = img.extent
+                    if ext.width > 1, ext.height > 1 {
+                        img = img.applyingFilter("CIVignetteEffect", parameters: [
+                            "inputCenter": CIVector(x: ext.midX, y: ext.midY),
+                            "inputRadius": max(ext.width, ext.height) * 0.75,
+                            "inputIntensity": min(1, max(0, grade.vignette)),
+                            "inputFalloff": 0.5,
+                        ]).cropped(to: ext)
+                    }
                 }
 
                 // 3. Transform: AVFoundation matrix → CI space via the proven flip-sandwich.
@@ -160,14 +187,18 @@ final class GradeCompositor: NSObject, AVVideoCompositing {
         CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: h)
     }
 
-    /// The primary-correction CIFilter chain. Identity grade is a no-op passthrough.
-    /// Order: exposure → color controls → temperature/tint → intensity (wet/dry) mix.
-    static func applyGrade(_ grade: ColorGrade, cube: LUTCube?, to image: CIImage) -> CIImage {
+    /// The color-correction CIFilter chain (vignette excluded — it is spatial and runs post-crop
+    /// in `startRequest`). Identity grade is a no-op passthrough. Order:
+    /// LUT → exposure → color controls → temperature/tint → correction cube (wheels/curves/HSL/tonal)
+    /// → hue → sharpen → clarity → intensity (wet/dry) mix.
+    static func applyGrade(_ grade: ColorGrade, cube: LUTCube?, correctionCube: LUTCube? = nil,
+                           to image: CIImage) -> CIImage {
         guard !grade.isIdentity else { return image }
         var img = image
 
-        // LUT base look first — the minor channels below ride on top of it. Its own lookIntensity
-        // mixes the cube result back over the ungraded image.
+        // LUT base look first — everything below rides on top of it. Its own lookIntensity
+        // mixes the cube result back over the ungraded image. Skin-tone protection is already
+        // baked into the cube (see GradeMath.skinProtected), so it costs nothing here.
         if grade.lut != nil, let cube {
             let looked = img.applyingFilter("CIColorCubeWithColorSpace", parameters: [
                 "inputCubeDimension": cube.dimension,
@@ -197,7 +228,38 @@ final class GradeCompositor: NSObject, AVVideoCompositing {
                 "inputTargetNeutral": CIVector(x: 6500 + grade.temperature * 30, y: grade.tint * 30)
             ])
         }
-        // Keep extent stable through color filters, then mix wet/dry by intensity.
+
+        // Secondary corrections — wheels → curves → HSL → highlights/shadows → fade, pre-baked
+        // into one 3D cube (GradeMath). Sampled in the same gamma sRGB space as creative LUTs.
+        if grade.needsCorrectionCube, let correctionCube {
+            img = img.applyingFilter("CIColorCubeWithColorSpace", parameters: [
+                "inputCubeDimension": correctionCube.dimension,
+                "inputCubeData": correctionCube.data,
+                "inputColorSpace": lutColorSpace,
+            ])
+        }
+
+        if grade.hue != 0 {
+            img = img.applyingFilter("CIHueAdjust", parameters: [
+                "inputAngle": grade.hue * .pi / 180
+            ])
+        }
+        if grade.sharpen > 0 {
+            img = img.applyingFilter("CISharpenLuminance", parameters: [
+                "inputSharpness": min(1, max(0, grade.sharpen)) * 1.6
+            ])
+        }
+        if grade.clarity > 0 {
+            // Local contrast: wide-radius unsharp mask scaled to the source size so the
+            // effect strength is resolution-stable.
+            let radius = max(2, min(image.extent.width, image.extent.height) / 40)
+            img = img.applyingFilter("CIUnsharpMask", parameters: [
+                "inputRadius": radius,
+                "inputIntensity": min(1, max(0, grade.clarity)) * 0.8
+            ])
+        }
+
+        // Keep extent stable through color/convolution filters, then mix wet/dry by intensity.
         img = img.cropped(to: image.extent)
         if grade.intensity < 1 {
             let a = CGFloat(max(0, min(1, grade.intensity)))

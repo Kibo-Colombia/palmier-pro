@@ -483,11 +483,25 @@ enum CompositionBuilder {
                 .filter { clipIds?.contains($0.id) ?? true }
                 .map { clip in
                     let lutId = clip.grade.lut ?? clip.gradeTrack?.keyframes.lazy.compactMap { $0.value.lut }.first
+                    // Skin-tone protection is baked into the look cube here (once, cached) so the
+                    // compositor pays nothing per frame. Protect amount from the static grade —
+                    // the toggle isn't meaningfully keyframable mid-LUT.
+                    var cube = lutId.flatMap { LUTStore.shared.cube(for: $0, resolveURL: resolveURL) }
+                    if let id = lutId, let base = cube, clip.grade.protectSkinTone > 0 {
+                        cube = GradeCubeCache.shared.skinProtectedCube(
+                            lutId: id, base: base, protect: clip.grade.protectSkinTone)
+                    }
+                    // Static grades pre-bake their correction cube; keyframed grades resolve
+                    // per frame in the compositor via GradeCubeCache.
+                    let correction: LUTCube? = (clip.gradeTrack == nil && clip.grade.needsCorrectionCube)
+                        ? GradeCubeCache.shared.correctionCube(for: clip.grade)
+                        : nil
                     return GradeClipRender(
                         clip: clip,
                         natSize: clipNaturalSizes[clip.id] ?? mapping.naturalSize,
                         preferredTransform: clipTransforms[clip.id] ?? .identity,
-                        cube: lutId.flatMap { LUTStore.shared.cube(for: $0, resolveURL: resolveURL) }
+                        cube: cube,
+                        correctionCube: correction
                     )
                 }
             if renders.contains(where: { $0.clip.hasNonIdentityGrade }) { anyGrade = true }

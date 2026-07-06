@@ -17,6 +17,11 @@ struct SpaceDetailView: View {
     @FocusState private var nameFocused: Bool
     /// Sticks across exports: whether the editor-handoff package renames copies to readable names.
     @AppStorage("space.renameForEditor") private var renameForEditor = true
+    /// One-time mental-model banner ("a Space is a saved view, not a folder").
+    @AppStorage("space.modelBannerDismissed") private var bannerDismissed = false
+    @State private var filterDraft = ""
+    /// Library files matching the Space's saved label filter (minus manual items).
+    @State private var matchedFiles: [URL] = []
 
     private var handoffOptions: SpaceMaterializer.Options {
         SpaceMaterializer.Options(writeBriefs: true, renameToDescription: renameForEditor)
@@ -31,7 +36,11 @@ struct SpaceDetailView: View {
             if let space {
                 VStack(alignment: .leading, spacing: 0) {
                     header(space)
-                    if space.items.isEmpty {
+                    if !space.items.isEmpty, !bannerDismissed {
+                        modelBanner
+                    }
+                    filterBar(space)
+                    if space.items.isEmpty, matchedFiles.isEmpty {
                         emptyState
                     } else {
                         grid(space)
@@ -61,6 +70,9 @@ struct SpaceDetailView: View {
         .task(id: spaceID) {
             registry.touch(spaceID)
             editingName = space?.name ?? ""
+        }
+        .task(id: "\(spaceID)|\((space?.labelFilter ?? []).joined(separator: ","))|\(roots.files.count)|\(space?.items.count ?? 0)") {
+            await recomputeMatches()
         }
     }
 
@@ -101,25 +113,25 @@ struct SpaceDetailView: View {
                 Button {
                     AppState.shared.openProject(at: project)
                 } label: {
-                    Label("Open Project", systemImage: "film.stack")
+                    Label("Open Project “\(project.deletingPathExtension().lastPathComponent)”", systemImage: "film.stack")
                 }
-                .help("Reopen the project spun off from this Space")
+                .help("Reopen the project this Space spun off")
                 .fixedSize()
             } else {
                 Button {
                     AppState.shared.createProject(from: space)
                 } label: {
-                    Label("Open as Project", systemImage: "film.stack")
+                    Label("Create Project from Space", systemImage: "film.stack.badge.plus")
                 }
                 .disabled(space.items.isEmpty)
-                .help("Create an editor project pre-loaded with this Space's moments")
+                .help("Snapshots these \(space.items.count) moments onto a new timeline. The Space is untouched.")
                 .fixedSize()
             }
 
             Menu {
                 if linkedProject != nil {
                     Button { AppState.shared.createProject(from: space) } label: {
-                        Label("New Project from Space…", systemImage: "film.stack.fill")
+                        Label("Create Another Project…", systemImage: "film.stack.fill")
                     }
                     .disabled(space.items.isEmpty)
                     Divider()
@@ -166,6 +178,94 @@ struct SpaceDetailView: View {
         .padding(.bottom, AppTheme.Spacing.md)
     }
 
+    // MARK: - Mental-model banner
+
+    /// One line, once: the distinction Spaces live or die on. The empty-state says this
+    /// too, but the confusion happens on *populated* Spaces at project-creation time.
+    private var modelBanner: some View {
+        HStack(spacing: AppTheme.Spacing.sm) {
+            Image(systemName: "info.circle")
+                .foregroundStyle(AppTheme.Text.tertiaryColor)
+            Text("A Space is a saved view of your library — not a folder. Nothing here moves or copies footage; a Project is an edit you spin off.")
+                .font(.system(size: AppTheme.FontSize.xs))
+                .foregroundStyle(AppTheme.Text.secondaryColor)
+            Spacer()
+            Button {
+                bannerDismissed = true
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: AppTheme.FontSize.xxs, weight: .bold))
+                    .foregroundStyle(AppTheme.Text.tertiaryColor)
+            }
+            .buttonStyle(.plain)
+            .help("Got it")
+        }
+        .padding(.horizontal, AppTheme.Spacing.md)
+        .padding(.vertical, AppTheme.Spacing.sm)
+        .background(Color.white.opacity(AppTheme.Opacity.subtle), in: RoundedRectangle(cornerRadius: AppTheme.Radius.sm, style: .continuous))
+        .padding(.horizontal, AppTheme.Spacing.xlXxl)
+        .padding(.bottom, AppTheme.Spacing.sm)
+    }
+
+    // MARK: - Label filter ("a label is a saved search")
+
+    private func filterBar(_ space: Space) -> some View {
+        HStack(spacing: AppTheme.Spacing.xs) {
+            Image(systemName: "line.3.horizontal.decrease.circle")
+                .foregroundStyle(AppTheme.Text.tertiaryColor)
+            ForEach(space.labelFilter ?? [], id: \.self) { token in
+                HStack(spacing: AppTheme.Spacing.xxs) {
+                    Text(token)
+                        .font(.system(size: AppTheme.FontSize.xxs, weight: .medium))
+                    Button {
+                        var tokens = space.labelFilter ?? []
+                        tokens.removeAll { $0 == token }
+                        registry.setLabelFilter(tokens, for: spaceID)
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .bold))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, AppTheme.Spacing.xs)
+                .padding(.vertical, AppTheme.Spacing.xxs)
+                .background(AppTheme.Accent.primary.opacity(AppTheme.Opacity.hint), in: .capsule)
+                .foregroundStyle(AppTheme.Text.secondaryColor)
+            }
+            TextField(
+                (space.labelFilter?.isEmpty ?? true) ? "Filter by label (e.g. set:night)…" : "Add label…",
+                text: $filterDraft
+            )
+            .textFieldStyle(.plain)
+            .font(.system(size: AppTheme.FontSize.xs))
+            .frame(maxWidth: 200)
+            .onSubmit {
+                let token = filterDraft.trimmingCharacters(in: .whitespaces)
+                guard !token.isEmpty else { return }
+                registry.setLabelFilter((space.labelFilter ?? []) + [token], for: spaceID)
+                filterDraft = ""
+            }
+            Spacer()
+        }
+        .padding(.horizontal, AppTheme.Spacing.xlXxl)
+        .padding(.bottom, AppTheme.Spacing.sm)
+    }
+
+    /// Matches are computed off-main from the label sidecars (passive reads); manual items
+    /// are excluded so a file never appears twice.
+    private func recomputeMatches() async {
+        guard let space, let filter = space.labelFilter, !filter.isEmpty else {
+            matchedFiles = []
+            return
+        }
+        let files = roots.files
+        let itemPaths = Set(space.items.compactMap { roots.fileURL(for: $0)?.path })
+        let matches = await Task.detached(priority: .utility) {
+            files.filter { LabelReader.matches(url: $0, filter: filter) }
+        }.value
+        matchedFiles = matches.filter { !itemPaths.contains($0.path) }
+    }
+
     private func commitName() {
         let trimmed = editingName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != space?.name else {
@@ -192,9 +292,41 @@ struct SpaceDetailView: View {
             .padding(.horizontal, AppTheme.Spacing.xlXxl)
             .padding(.bottom, AppTheme.Spacing.xlXxl)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: space.items.map(\.id))
+
+            if !matchedFiles.isEmpty {
+                matchedSection(space)
+            }
         }
         .scrollEdgeEffectStyle(.soft, for: .top)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Live results of the Space's saved label filter — library files that match but were
+    /// never manually added. The ＋ affordance promotes one into the Space's own moments.
+    private func matchedSection(_ space: Space) -> some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+            HStack(spacing: AppTheme.Spacing.xs) {
+                Text("Matched by filter")
+                    .font(.system(size: AppTheme.FontSize.sm, weight: .semibold))
+                    .foregroundStyle(AppTheme.Text.secondaryColor)
+                Text("\(matchedFiles.count)")
+                    .font(.system(size: AppTheme.FontSize.xs))
+                    .foregroundStyle(AppTheme.Text.tertiaryColor)
+                    .monospacedDigit()
+            }
+            LazyVGrid(columns: columns, spacing: AppTheme.Spacing.lg) {
+                ForEach(matchedFiles, id: \.path) { url in
+                    MatchedFileCard(url: url) {
+                        guard let address = roots.address(for: url) else { return }
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            registry.add([address], to: spaceID)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, AppTheme.Spacing.xlXxl)
+        .padding(.bottom, AppTheme.Spacing.xlXxl)
     }
 
     private var emptyState: some View {
@@ -434,6 +566,62 @@ private struct SpaceMomentCard: View {
         generator.requestedTimeToleranceAfter = CMTime(seconds: 1, preferredTimescale: 600)
         guard let cg = try? await generator.image(at: CMTime(seconds: 0, preferredTimescale: 600)).image else { return nil }
         return NSImage(cgImage: cg, size: .zero)
+    }
+}
+
+/// A library file surfaced by the Space's label filter — same footage atoms as a moment
+/// card, with a ＋ control to promote it into the Space's own moments.
+private struct MatchedFileCard: View {
+    let url: URL
+    let onAdd: () -> Void
+
+    @State private var isHovered = false
+
+    private let cardRadius = AppTheme.Radius.sm
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.xxs) {
+            ZStack {
+                Rectangle().fill(Color.black)
+                HoverScrubThumbnail(url: url, poster: nil)
+            }
+            .aspectRatio(16.0 / 9.0, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
+                    .strokeBorder(
+                        Color.white.opacity(isHovered ? AppTheme.Opacity.muted : AppTheme.Opacity.hint),
+                        lineWidth: AppTheme.BorderWidth.hairline
+                    )
+            }
+            .overlay(alignment: .bottomLeading) {
+                LabelChips(url: url).padding(AppTheme.Spacing.xs)
+            }
+            .overlay(alignment: .topTrailing) {
+                Button(action: onAdd) {
+                    Image(systemName: "plus")
+                        .font(.system(size: AppTheme.FontSize.xxs, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: AppTheme.IconSize.smMd, height: AppTheme.IconSize.smMd)
+                        .background(Circle().fill(.black.opacity(AppTheme.Opacity.prominent)))
+                        .overlay(
+                            Circle().strokeBorder(Color.white.opacity(AppTheme.Opacity.faint), lineWidth: AppTheme.BorderWidth.hairline)
+                        )
+                }
+                .buttonStyle(.plain)
+                .help("Add to this Space")
+                .padding(AppTheme.Spacing.xs)
+                .opacity(isHovered ? 1 : 0)
+            }
+            Text(url.deletingPathExtension().lastPathComponent)
+                .font(.system(size: AppTheme.FontSize.xs))
+                .foregroundStyle(AppTheme.Text.tertiaryColor)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .scaleEffect(isHovered ? 1.015 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isHovered)
+        .onHover { isHovered = $0 }
     }
 }
 

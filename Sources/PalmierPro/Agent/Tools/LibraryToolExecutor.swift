@@ -210,23 +210,21 @@ final class LibraryToolExecutor: AgentToolHost {
     }
 
     /// Top label tokens for a file, read passively from the on-disk sidecar (no model inference —
-    /// mirrors how `SummaryService` reads labels on the home screen). Empty until the file indexes.
+    /// shared with the Space label-filter UI via `LabelReader`). Empty until the file indexes.
     private func labels(for url: URL) -> [String] {
-        let key = EmbeddingStore.key(for: url)
-        let visual = key.flatMap { LabelStore.load(key: $0)?.file } ?? []
-        let merged = LabelMerge.merged(visual: visual, url: url, key: key)
-        let seen = merged.filter { !HeardFacets.isHeard($0.token) }
-            .sorted { ($0.coverage * Double($0.peak)) > ($1.coverage * Double($1.peak)) }
-            .prefix(6).map(\.token)
-        let heard = merged.filter { HeardFacets.isHeard($0.token) }.map(\.token)
-        return Array(seen) + heard   // seen (top 6) + heard (say:/topic:)
+        LabelReader.labels(for: url)
     }
 
     // MARK: - Spaces
 
     private func listSpaces() -> ToolResult {
         let spaces = SpaceRegistry.shared.spaces.map { space -> [String: Any] in
-            ["id": space.id.uuidString, "name": space.name, "itemCount": space.items.count]
+            var dict: [String: Any] = ["id": space.id.uuidString, "name": space.name, "itemCount": space.items.count]
+            if let filter = space.labelFilter, !filter.isEmpty { dict["labelFilter"] = filter }
+            if let project = SpaceRegistry.shared.linkedProjectURL(for: space.id) {
+                dict["linkedProject"] = project.deletingPathExtension().lastPathComponent
+            }
+            return dict
         }
         return jsonResult(["spaces": spaces])
     }
@@ -234,6 +232,8 @@ final class LibraryToolExecutor: AgentToolHost {
     private func createSpace(_ args: [String: Any]) throws -> ToolResult {
         let name = try args.requireString("name")
         let space = SpaceRegistry.shared.create(name: name)
+        let filter = args.stringArray("labelFilter")
+        if !filter.isEmpty { SpaceRegistry.shared.setLabelFilter(filter, for: space.id) }
         return jsonResult(["id": space.id.uuidString, "name": space.name])
     }
 

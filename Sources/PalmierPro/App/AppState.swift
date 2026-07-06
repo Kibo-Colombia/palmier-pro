@@ -134,31 +134,40 @@ final class AppState {
         }
     }
 
-    /// Spin off a new editor Project from a Space (M3): same save flow as `createNewProject`, then
-    /// load the Space's moments onto the fresh timeline pre-trimmed. The Space is unchanged — the
-    /// Project is an output of it.
+    /// Spin off a new editor Project from a Space (M3): the Project is an *output* of the
+    /// Space, so it saves straight into the projects directory named after the Space — no
+    /// save panel. (The panel read as "where do I put this folder?" and was the main source
+    /// of Space-vs-folder confusion.) The Space itself is unchanged.
     func createProject(from space: Space) {
         let moments = SpaceProjectSpinoff.resolve(space)
         guard !moments.isEmpty else { NSSound.beep(); return }
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [Self.projectContentType]
-        panel.nameFieldStringValue = space.name
-        panel.directoryURL = Project.storageDirectory
-        panel.title = "New Project from Space"
-        panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
-            let doc = VideoProject()
-            doc.fileURL = url
-            doc.fileType = VideoProject.typeIdentifier
-            doc.makeWindowControllers()
-            doc.showWindows()
-            NSDocumentController.shared.addDocument(doc)
-            doc.save(to: url, ofType: VideoProject.typeIdentifier, for: .saveOperation) { _ in
-                ProjectRegistry.shared.register(url)
-                SpaceRegistry.shared.setProject(url, for: space.id)
-                Task { @MainActor in await SpaceProjectSpinoff.load(moments, into: doc.editorViewModel) }
-            }
+        let url = Self.uniqueProjectURL(named: space.name)
+        let doc = VideoProject()
+        doc.fileURL = url
+        doc.fileType = VideoProject.typeIdentifier
+        doc.makeWindowControllers()
+        doc.showWindows()
+        NSDocumentController.shared.addDocument(doc)
+        doc.save(to: url, ofType: VideoProject.typeIdentifier, for: .saveOperation) { _ in
+            ProjectRegistry.shared.register(url)
+            SpaceRegistry.shared.setProject(url, for: space.id)
+            Task { @MainActor in await SpaceProjectSpinoff.load(moments, into: doc.editorViewModel) }
         }
+    }
+
+    /// First free "<name>.palmier" / "<name> N.palmier" slot in the projects directory.
+    private static func uniqueProjectURL(named name: String) -> URL {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = trimmed.isEmpty ? Project.defaultProjectName : trimmed
+        var candidate = Project.storageDirectory
+            .appendingPathComponent(base).appendingPathExtension(Project.fileExtension)
+        var counter = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = Project.storageDirectory
+                .appendingPathComponent("\(base) \(counter)").appendingPathExtension(Project.fileExtension)
+            counter += 1
+        }
+        return candidate
     }
 
     func openProject(at url: URL, register: Bool = true, options: ProjectOpenOptions = .init()) {

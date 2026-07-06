@@ -121,6 +121,15 @@ final class SpaceRegistry {
         save()
     }
 
+    /// Save (or clear) the Space's label filter — "a label is a saved search": the Space's
+    /// grid grows a live section of every library file matching these tokens.
+    func setLabelFilter(_ tokens: [String]?, for id: UUID) {
+        guard let i = spaces.firstIndex(where: { $0.id == id }) else { return }
+        let cleaned = tokens?.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        spaces[i].labelFilter = (cleaned?.isEmpty ?? true) ? nil : cleaned
+        save()
+    }
+
     /// Stamp last-opened (for sort order) when a Space is viewed.
     func touch(_ id: UUID) {
         guard let i = spaces.firstIndex(where: { $0.id == id }) else { return }

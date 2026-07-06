@@ -56,14 +56,15 @@ enum LibraryToolDefinitions {
         ),
         schema(
             .listSpaces,
-            "Lists existing Spaces as {id, name, itemCount}. Use the id with the other Space tools.",
+            "Lists existing Spaces as {id, name, itemCount, labelFilter?, linkedProject?}. labelFilter is the Space's saved-search tokens; linkedProject is the name of the editor project it spun off, when one exists. Use the id with the other Space tools.",
             obj()
         ),
         schema(
             .createSpace,
-            "Creates a new empty Space and returns its id. A Space is a named, non-destructive grouping — the home analog of a folder. Don't create many tiny Spaces; prefer a few meaningful ones.",
+            "Creates a new empty Space and returns its id. A Space is a SAVED VIEW of the library — never a folder; adding footage to one moves nothing on disk. Don't create many tiny Spaces; prefer a few meaningful ones. Optionally give it a labelFilter so it also live-matches every library file carrying those label tokens (a label is a saved search).",
             obj(properties: [
                 "name": ["type": "string", "description": "Space name."],
+                "labelFilter": ["type": "array", "items": ["type": "string"], "description": "Optional label tokens (e.g. ['set:night']) the Space live-matches in addition to manually added moments."],
             ], required: ["name"])
         ),
         schema(

@@ -475,7 +475,7 @@ extension ToolExecutor {
 
     // MARK: set_keyframes
 
-    private static let keyframePropertyNames: Set<String> = ["volume", "opacity", "rotation", "position", "scale", "crop"]
+    private static let keyframePropertyNames: Set<String> = ["volume", "opacity", "rotation", "position", "scale", "crop", "grade"]
 
     func setKeyframes(_ editor: EditorViewModel, _ args: [String: Any]) throws -> ToolResult {
         let input: SetKeyframesInput = try decodeToolArgs(args, path: "set_keyframes")
@@ -509,6 +509,15 @@ extension ToolExecutor {
             case "crop":
                 let kfs = try Self.parseCropKeyframes(rows, path: "keyframes")
                 editor.commitClipProperty(clipId: input.clipId) { $0.cropTrack = kfs.keyframes.isEmpty ? nil : kfs }
+            case "grade":
+                // Rows are [frame, partialGradeObject, interp?] — the grade has too many channels
+                // to be positional. Each row's object merges over the clip's STATIC grade, so
+                // unspecified channels hold their static value across the whole animation.
+                guard let base = editor.clipFor(id: input.clipId)?.grade else {
+                    throw ToolError("Clip not found: \(input.clipId)")
+                }
+                let kfs = try Self.parseGradeKeyframes(rows, base: base, path: "keyframes")
+                editor.commitClipProperty(clipId: input.clipId) { $0.gradeTrack = kfs.keyframes.isEmpty ? nil : kfs }
             default:
                 break  // unreachable: validated above
             }
@@ -579,6 +588,25 @@ extension ToolExecutor {
         try parseKeyframes(rows, path: path, fieldNames: ["top", "right", "bottom", "left"]) {
             Crop(left: $0[3], top: $0[0], right: $0[1], bottom: $0[2])
         }
+    }
+
+    /// Parse `[[frame, {grade channels}, interp?], ...]` — object-valued rows (see set_grade
+    /// for the channel vocabulary; validated by the same GradeChannels parser).
+    fileprivate static func parseGradeKeyframes(_ rows: [Any], base: ColorGrade, path: String) throws -> KeyframeTrack<ColorGrade> {
+        var out: [Keyframe<ColorGrade>] = []
+        for (i, raw) in rows.enumerated() {
+            guard let row = raw as? [Any], row.count == 2 || row.count == 3 else {
+                throw ToolError("\(path)[\(i)]: expected [frame, {channels}, interp?]")
+            }
+            let frame = try kfInt(row[0], at: "\(path)[\(i)][0] (frame)")
+            guard let obj = row[1] as? [String: Any] else {
+                throw ToolError("\(path)[\(i)][1]: expected a grade-channels object (like set_grade's fields)")
+            }
+            let channels = try GradeChannels.parse(obj, path: "\(path)[\(i)][1]")
+            let interp = try kfInterp(row.count > 2 ? row[2] : nil, at: "\(path)[\(i)][2] (interp)")
+            out.append(Keyframe(frame: frame, value: channels.merged(over: base).grade, interpolationOut: interp))
+        }
+        return KeyframeTrack(keyframes: sortAndDedupe(out))
     }
 
     private static func sortAndDedupe<V>(_ kfs: [Keyframe<V>]) -> [Keyframe<V>] {

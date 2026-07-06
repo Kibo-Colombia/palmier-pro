@@ -26,7 +26,23 @@ final class RootsRegistry {
 
     private init() {
         load()
+        ensureDefaultRoot()
         Task { await rescan() }
+    }
+
+    /// The permanent internal library root. Ensured on every launch: `~/Movies/videos`
+    /// is where footage lives to be understood — the user drops files there in Finder
+    /// and they simply become part of the Library.
+    private func ensureDefaultRoot() {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Movies/videos", isDirectory: true)
+        let path = url.standardizedFileURL.path
+        let existing = roots.compactMap { Bookmarks.resolve($0.bookmark)?.url.standardizedFileURL.path }
+        guard !existing.contains(path) else { return }
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        guard let bookmark = Bookmarks.create(for: url) else { return }
+        roots.insert(Root(id: UUID(), label: url.lastPathComponent, bookmark: bookmark), at: 0)
+        save()
     }
 
     // MARK: - Mutations
@@ -90,6 +106,9 @@ final class RootsRegistry {
                     out.append(file)
                 }
             }
+            // One-time: re-key legacy path-keyed sidecars to content keys while every
+            // file still sits at the path its old key was derived from.
+            if !SidecarMigrator.isDone { SidecarMigrator.migrate(files: out) }
             return (out.sorted { $0.lastPathComponent < $1.lastPathComponent }, broken, refreshed)
         }.value
         for (id, bookmark) in result.refreshed {
@@ -98,17 +117,46 @@ final class RootsRegistry {
         if !result.refreshed.isEmpty { save() }
         brokenRootIDs = result.broken
         self.files = result.files
+        reverseKeyCache = nil
+        SpaceRegistry.shared.stampMissingContentKeys(using: self)
     }
 
     // MARK: - Portable addressing (M3)
 
+    /// Lazy `contentKey → URL` over the current `files` — the recovery index for moments
+    /// whose stored relativePath no longer exists (in-root rename/move). Invalidated on
+    /// every rescan; built only when a moment actually fails to resolve.
+    private var reverseKeyCache: [String: URL]?
+
+    private func reverseKeyMap() -> [String: URL] {
+        if let reverseKeyCache { return reverseKeyCache }
+        var map: [String: URL] = [:]
+        for file in files {
+            if let key = AssetIdentity.key(for: file) { map[key] = file }
+        }
+        reverseKeyCache = map
+        return map
+    }
+
     /// Resolve a portable moment address to a concrete file URL via its root's bookmark.
     /// Claims security-scoped access (a no-op while unsandboxed) so the file is readable.
+    /// When the stored relativePath is gone but the address carries a contentKey, the file
+    /// is re-found by content identity and the Space's address self-heals for next time.
     func fileURL(for address: MomentAddress) -> URL? {
-        guard let root = roots.first(where: { $0.label == address.rootLabel }),
-              let resolved = Bookmarks.resolve(root.bookmark) else { return nil }
-        _ = resolved.url.startAccessingSecurityScopedResource()
-        return resolved.url.appendingPathComponent(address.relativePath)
+        if let root = roots.first(where: { $0.label == address.rootLabel }),
+           let resolved = Bookmarks.resolve(root.bookmark) {
+            _ = resolved.url.startAccessingSecurityScopedResource()
+            let url = resolved.url.appendingPathComponent(address.relativePath)
+            if FileManager.default.fileExists(atPath: url.path) { return url }
+        }
+        guard let contentKey = address.contentKey,
+              let healed = reverseKeyMap()[contentKey],
+              var repaired = self.address(for: healed) else { return nil }
+        repaired.shotStart = address.shotStart
+        repaired.shotEnd = address.shotEnd
+        let old = address
+        Task { @MainActor in SpaceRegistry.shared.repairAddress(old, to: repaired) }
+        return healed
     }
 
     /// Build a portable address for a Library file URL, choosing the root that contains it.
@@ -124,7 +172,8 @@ final class RootsRegistry {
                 rootLabel: root.label,
                 relativePath: String(target.dropFirst(prefix.count)),
                 shotStart: shotStart,
-                shotEnd: shotEnd
+                shotEnd: shotEnd,
+                contentKey: AssetIdentity.key(for: fileURL)
             )
         }
         return nil

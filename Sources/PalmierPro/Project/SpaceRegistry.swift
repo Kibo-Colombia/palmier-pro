@@ -90,10 +90,20 @@ final class SpaceRegistry {
     }
 
     /// Add moment addresses to a Space, de-duplicating against what's already there.
+    /// Drag payloads don't carry contentKeys — stamp them here so every stored moment
+    /// can self-heal after a rename/move.
     func add(_ addresses: [MomentAddress], to id: UUID) {
         guard let i = spaces.firstIndex(where: { $0.id == id }), !addresses.isEmpty else { return }
+        let stamped = addresses.map { address in
+            guard address.contentKey == nil,
+                  let url = RootsRegistry.shared.fileURL(for: address),
+                  let key = AssetIdentity.key(for: url) else { return address }
+            var withKey = address
+            withKey.contentKey = key
+            return withKey
+        }
         let existing = Set(spaces[i].items)
-        spaces[i].items.append(contentsOf: addresses.filter { !existing.contains($0) })
+        spaces[i].items.append(contentsOf: stamped.filter { !existing.contains($0) })
         spaces[i].lastOpenedDate = Date()
         save()
     }
@@ -137,6 +147,41 @@ final class SpaceRegistry {
     /// Number of moments in a Space — used for the sidebar badge.
     func itemCount(for id: UUID) -> Int {
         spaces.first { $0.id == id }?.items.count ?? 0
+    }
+
+    // MARK: - Content-identity self-heal
+
+    /// Rewrite every stored copy of a moved/renamed file's address (any shot range) to its
+    /// re-found location, preserving each moment's range. Called by
+    /// `RootsRegistry.fileURL(for:)` when a moment resolves via contentKey fallback.
+    func repairAddress(_ old: MomentAddress, to new: MomentAddress) {
+        var changed = false
+        for s in spaces.indices {
+            for i in spaces[s].items.indices
+            where spaces[s].items[i].rootLabel == old.rootLabel
+                && spaces[s].items[i].relativePath == old.relativePath {
+                spaces[s].items[i].rootLabel = new.rootLabel
+                spaces[s].items[i].relativePath = new.relativePath
+                spaces[s].items[i].contentKey = new.contentKey
+                changed = true
+            }
+        }
+        if changed { save() }
+    }
+
+    /// Stamp contentKeys onto addresses that predate them (pre-v2 registry JSON, or drag
+    /// payloads, which don't carry the key). Cheap when there's nothing to do.
+    func stampMissingContentKeys(using registry: RootsRegistry) {
+        var changed = false
+        for s in spaces.indices {
+            for i in spaces[s].items.indices where spaces[s].items[i].contentKey == nil {
+                guard let url = registry.fileURL(for: spaces[s].items[i]),
+                      let key = AssetIdentity.key(for: url) else { continue }
+                spaces[s].items[i].contentKey = key
+                changed = true
+            }
+        }
+        if changed { save() }
     }
 
     // MARK: - Persistence

@@ -1,6 +1,9 @@
 import Foundation
 
-// MARK: set_grade — per-clip primary color correction (grade by conversation)
+// MARK: set_grade — per-clip color correction (grade by conversation)
+//
+// The channel-parsing core is `GradeChannels`, shared by set_grade (merged over each clip's
+// static grade) and set_keyframes' grade rows (merged over the clip's static grade per row).
 
 /// One HSL band's partial adjustment (all −1…1). Omitted components keep their value.
 fileprivate struct HSLBandInput: Decodable {
@@ -41,11 +44,11 @@ fileprivate struct CurvesInput: Decodable {
     var hasAnyField: Bool { rgb != nil || red != nil || green != nil || blue != nil }
 
     /// Validate and convert one channel's raw pairs into sorted CurvePoints.
-    static func parseChannel(_ raw: [[Double]], name: String) throws -> [CurvePoint] {
-        guard raw.count <= 16 else { throw ToolError("set_grade.curves.\(name): at most 16 points") }
-        if !raw.isEmpty && raw.count < 2 { throw ToolError("set_grade.curves.\(name): need at least 2 points (or [] to reset)") }
+    static func parseChannel(_ raw: [[Double]], name: String, path: String) throws -> [CurvePoint] {
+        guard raw.count <= 16 else { throw ToolError("\(path).curves.\(name): at most 16 points") }
+        if !raw.isEmpty && raw.count < 2 { throw ToolError("\(path).curves.\(name): need at least 2 points (or [] to reset)") }
         let pts = try raw.map { pair -> CurvePoint in
-            guard pair.count == 2 else { throw ToolError("set_grade.curves.\(name): each point must be [x, y]") }
+            guard pair.count == 2 else { throw ToolError("\(path).curves.\(name): each point must be [x, y]") }
             return CurvePoint(x: min(1, max(0, pair[0])), y: min(1, max(0, pair[1])))
         }
         return pts.sorted { $0.x < $1.x }
@@ -71,8 +74,8 @@ fileprivate struct WheelsInput: Decodable {
     var hasAnyField: Bool { lift != nil || gamma != nil || gain != nil || offset != nil || reset == true }
 }
 
-fileprivate struct SetGradeInput: DecodableToolArgs {
-    let clipIds: [String]
+/// Every grade channel of a set_grade-style JSON object (everything except clipIds).
+fileprivate struct GradeChannelsInput: Decodable {
     let exposure: Double?
     let brightness: Double?
     let contrast: Double?
@@ -94,13 +97,6 @@ fileprivate struct SetGradeInput: DecodableToolArgs {
     let wheels: WheelsInput?
     let reset: Bool?
 
-    static let allowedKeys: Set<String> = [
-        "clipIds", "exposure", "brightness", "contrast", "saturation",
-        "temperature", "tint", "hue", "highlights", "shadows", "fade",
-        "sharpen", "clarity", "vignette", "lookIntensity", "protectSkinTone",
-        "intensity", "hsl", "curves", "wheels", "reset",
-    ]
-
     var hasAnyField: Bool {
         exposure != nil || brightness != nil || contrast != nil || saturation != nil
             || temperature != nil || tint != nil || hue != nil || highlights != nil
@@ -111,41 +107,132 @@ fileprivate struct SetGradeInput: DecodableToolArgs {
     }
 }
 
-extension ToolExecutor {
-    /// Channel clamp domains (mirrors the CIFilter-sane ranges in GradeCompositor).
-    nonisolated private static func clampGrade(_ value: Double, _ range: ClosedRange<Double>) -> Double {
+/// A fully validated partial grade — parse once, merge over any base grade.
+struct GradeChannels {
+    static let allowedKeys: Set<String> = [
+        "exposure", "brightness", "contrast", "saturation",
+        "temperature", "tint", "hue", "highlights", "shadows", "fade",
+        "sharpen", "clarity", "vignette", "lookIntensity", "protectSkinTone",
+        "intensity", "hsl", "curves", "wheels", "reset",
+    ]
+
+    private let input: GradeChannelsInput
+    private let curves: (rgb: [CurvePoint]?, red: [CurvePoint]?, green: [CurvePoint]?, blue: [CurvePoint]?)
+
+    var hasAnyField: Bool { input.hasAnyField }
+
+    /// Validate keys (JSONDecoder silently drops unknown ones — reject misspellings explicitly)
+    /// and pre-parse curves so malformed input fails before anything mutates.
+    static func parse(_ raw: [String: Any], path: String) throws -> GradeChannels {
+        try validateUnknownKeys(raw, allowed: allowedKeys, path: path)
+        if let rawHSL = raw["hsl"] as? [String: Any] {
+            try validateUnknownKeys(rawHSL, allowed: Set(HSLAdjust.bandNames + ["reset"]), path: "\(path).hsl")
+            for (band, value) in rawHSL where band != "reset" {
+                if let components = value as? [String: Any] {
+                    try validateUnknownKeys(components, allowed: ["hue", "saturation", "luminance"], path: "\(path).hsl.\(band)")
+                }
+            }
+        }
+        if let rawCurves = raw["curves"] as? [String: Any] {
+            try validateUnknownKeys(rawCurves, allowed: ["rgb", "red", "green", "blue"], path: "\(path).curves")
+        }
+        if let rawWheels = raw["wheels"] as? [String: Any] {
+            try validateUnknownKeys(rawWheels, allowed: ["lift", "gamma", "gain", "offset", "reset"], path: "\(path).wheels")
+            for (wheel, value) in rawWheels where wheel != "reset" {
+                if let components = value as? [String: Any] {
+                    try validateUnknownKeys(components, allowed: ["r", "g", "b", "luma"], path: "\(path).wheels.\(wheel)")
+                }
+            }
+        }
+
+        let data: Data
+        do { data = try JSONSerialization.data(withJSONObject: raw) }
+        catch { throw ToolError("\(path): could not re-serialize args (\(error.localizedDescription))") }
+        let input: GradeChannelsInput
+        do { input = try JSONDecoder().decode(GradeChannelsInput.self, from: data) }
+        catch { throw ToolError("\(path): \(error.localizedDescription)") }
+
+        let parsedCurves = (
+            try input.curves?.rgb.map   { try CurvesInput.parseChannel($0, name: "rgb", path: path) },
+            try input.curves?.red.map   { try CurvesInput.parseChannel($0, name: "red", path: path) },
+            try input.curves?.green.map { try CurvesInput.parseChannel($0, name: "green", path: path) },
+            try input.curves?.blue.map  { try CurvesInput.parseChannel($0, name: "blue", path: path) }
+        )
+        return GradeChannels(input: input, curves: parsedCurves)
+    }
+
+    private static func clamp(_ value: Double, _ range: ClosedRange<Double>) -> Double {
         min(range.upperBound, max(range.lowerBound, value))
     }
 
+    /// Apply the partial channels over `base`. Returns the merged grade and a compact
+    /// description of every channel that was set (for the tool echo).
+    func merged(over base: ColorGrade) -> (grade: ColorGrade, changed: [String]) {
+        var g = base
+        var changed: [String] = []
+        if input.reset == true { g = ColorGrade(); changed.append("reset") }
+        if let v = input.exposure    { g.exposure    = Self.clamp(v, -4...4);   changed.append("exposure \(fmt(g.exposure))") }
+        if let v = input.brightness  { g.brightness  = Self.clamp(v, -1...1);   changed.append("brightness \(fmt(g.brightness))") }
+        if let v = input.contrast    { g.contrast    = Self.clamp(v, 0...4);    changed.append("contrast \(fmt(g.contrast))") }
+        if let v = input.saturation  { g.saturation  = Self.clamp(v, 0...4);    changed.append("saturation \(fmt(g.saturation))") }
+        if let v = input.temperature { g.temperature = Self.clamp(v, -100...100); changed.append("temperature \(fmt(g.temperature))") }
+        if let v = input.tint        { g.tint        = Self.clamp(v, -100...100); changed.append("tint \(fmt(g.tint))") }
+        if let v = input.hue         { g.hue         = Self.clamp(v, -180...180); changed.append("hue \(fmt(g.hue))") }
+        if let v = input.highlights  { g.highlights  = Self.clamp(v, -1...1);   changed.append("highlights \(fmt(g.highlights))") }
+        if let v = input.shadows     { g.shadows     = Self.clamp(v, -1...1);   changed.append("shadows \(fmt(g.shadows))") }
+        if let v = input.fade        { g.fade        = Self.clamp(v, 0...1);    changed.append("fade \(fmt(g.fade))") }
+        if let v = input.sharpen     { g.sharpen     = Self.clamp(v, 0...1);    changed.append("sharpen \(fmt(g.sharpen))") }
+        if let v = input.clarity     { g.clarity     = Self.clamp(v, 0...1);    changed.append("clarity \(fmt(g.clarity))") }
+        if let v = input.vignette    { g.vignette    = Self.clamp(v, 0...1);    changed.append("vignette \(fmt(g.vignette))") }
+        if let v = input.lookIntensity { g.lookIntensity = Self.clamp(v, 0...1); changed.append("lookIntensity \(fmt(g.lookIntensity))") }
+        if let v = input.protectSkinTone { g.protectSkinTone = v ? 1 : 0; changed.append("protectSkinTone \(v ? "on" : "off")") }
+        if let v = input.intensity   { g.intensity   = Self.clamp(v, 0...1);    changed.append("intensity \(fmt(g.intensity))") }
+        if let c = curves.rgb   { g.curves.rgb   = c; changed.append("curves.rgb \(c.count)pts") }
+        if let c = curves.red   { g.curves.red   = c; changed.append("curves.red \(c.count)pts") }
+        if let c = curves.green { g.curves.green = c; changed.append("curves.green \(c.count)pts") }
+        if let c = curves.blue  { g.curves.blue  = c; changed.append("curves.blue \(c.count)pts") }
+        if let w = input.wheels {
+            if w.reset == true { g.wheels = ColorWheels(); changed.append("wheels reset") }
+            func merge(_ wheel: WheelInput?, into target: inout WheelAdjust, name: String) {
+                guard let wheel else { return }
+                if let v = wheel.r    { target.r    = Self.clamp(v, -1...1) }
+                if let v = wheel.g    { target.g    = Self.clamp(v, -1...1) }
+                if let v = wheel.b    { target.b    = Self.clamp(v, -1...1) }
+                if let v = wheel.luma { target.luma = Self.clamp(v, -1...1) }
+                changed.append("wheels.\(name)")
+            }
+            merge(w.lift, into: &g.wheels.lift, name: "lift")
+            merge(w.gamma, into: &g.wheels.gamma, name: "gamma")
+            merge(w.gain, into: &g.wheels.gain, name: "gain")
+            merge(w.offset, into: &g.wheels.offset, name: "offset")
+        }
+        if let h = input.hsl {
+            if h.reset == true { g.hsl = HSLAdjust(); changed.append("hsl reset") }
+            for (i, band) in h.bands {
+                let name = HSLAdjust.bandNames[i]
+                if let v = band.hue        { g.hsl.hueShift[i]   = Self.clamp(v, -1...1); changed.append("\(name).hue \(fmt(g.hsl.hueShift[i]))") }
+                if let v = band.saturation { g.hsl.saturation[i] = Self.clamp(v, -1...1); changed.append("\(name).sat \(fmt(g.hsl.saturation[i]))") }
+                if let v = band.luminance  { g.hsl.luminance[i]  = Self.clamp(v, -1...1); changed.append("\(name).lum \(fmt(g.hsl.luminance[i]))") }
+            }
+        }
+        return (g, changed)
+    }
+}
+
+extension ToolExecutor {
     func setGrade(_ editor: EditorViewModel, _ args: [String: Any]) throws -> ToolResult {
-        // JSONDecoder silently drops unknown keys — reject misspelled band/channel names explicitly.
-        if let rawHSL = args["hsl"] as? [String: Any] {
-            try validateUnknownKeys(rawHSL, allowed: Set(HSLAdjust.bandNames + ["reset"]), path: "set_grade.hsl")
-            for (band, value) in rawHSL where band != "reset" {
-                if let components = value as? [String: Any] {
-                    try validateUnknownKeys(components, allowed: ["hue", "saturation", "luminance"], path: "set_grade.hsl.\(band)")
-                }
-            }
+        guard let clipIds = args["clipIds"] as? [String], !clipIds.isEmpty else {
+            throw ToolError("Missing or empty 'clipIds' array")
         }
-        if let rawCurves = args["curves"] as? [String: Any] {
-            try validateUnknownKeys(rawCurves, allowed: ["rgb", "red", "green", "blue"], path: "set_grade.curves")
-        }
-        if let rawWheels = args["wheels"] as? [String: Any] {
-            try validateUnknownKeys(rawWheels, allowed: ["lift", "gamma", "gain", "offset", "reset"], path: "set_grade.wheels")
-            for (wheel, value) in rawWheels where wheel != "reset" {
-                if let components = value as? [String: Any] {
-                    try validateUnknownKeys(components, allowed: ["r", "g", "b", "luma"], path: "set_grade.wheels.\(wheel)")
-                }
-            }
-        }
-        let input: SetGradeInput = try decodeToolArgs(args, path: "set_grade")
-        guard !input.clipIds.isEmpty else { throw ToolError("Missing or empty 'clipIds' array") }
-        guard input.hasAnyField else {
-            throw ToolError("set_grade needs at least one channel (exposure/brightness/contrast/saturation/temperature/tint/hue/highlights/shadows/fade/sharpen/clarity/vignette/lookIntensity/protectSkinTone/intensity) or reset:true")
+        var channelArgs = args
+        channelArgs.removeValue(forKey: "clipIds")
+        let channels = try GradeChannels.parse(channelArgs, path: "set_grade")
+        guard channels.hasAnyField else {
+            throw ToolError("set_grade needs at least one channel (exposure/brightness/contrast/saturation/temperature/tint/hue/highlights/shadows/fade/sharpen/clarity/vignette/lookIntensity/protectSkinTone/intensity/hsl/curves/wheels) or reset:true")
         }
 
         // Resolve every clip up front; grade is a visual property — reject audio clips.
-        for id in input.clipIds {
+        for id in clipIds {
             guard let loc = editor.findClip(id: id) else { throw ToolError("Clip not found: \(id)") }
             let clip = editor.timeline.tracks[loc.trackIndex].clips[loc.clipIndex]
             if clip.mediaType == .audio {
@@ -153,78 +240,22 @@ extension ToolExecutor {
             }
         }
 
-        // Parse curve channels up front so malformed input fails before any clip mutates.
-        let parsedCurves: (rgb: [CurvePoint]?, red: [CurvePoint]?, green: [CurvePoint]?, blue: [CurvePoint]?) = (
-            try input.curves?.rgb.map   { try CurvesInput.parseChannel($0, name: "rgb") },
-            try input.curves?.red.map   { try CurvesInput.parseChannel($0, name: "red") },
-            try input.curves?.green.map { try CurvesInput.parseChannel($0, name: "green") },
-            try input.curves?.blue.map  { try CurvesInput.parseChannel($0, name: "blue") }
-        )
-
-        let actionName = input.clipIds.count == 1 ? "Color Grade (Agent)" : "Color Grade \(input.clipIds.count) Clips (Agent)"
+        let actionName = clipIds.count == 1 ? "Color Grade (Agent)" : "Color Grade \(clipIds.count) Clips (Agent)"
         let summaries: [String] = withUndoGroup(editor, actionName: actionName) {
             var out: [String] = []
-            for id in input.clipIds {
-                var changed: [String] = []
+            for id in clipIds {
+                var summary = ""
                 editor.commitClipProperty(clipId: id) { clip in
-                    var g = clip.grade
-                    if input.reset == true { g = ColorGrade() }
-                    if let v = input.exposure    { g.exposure    = Self.clampGrade(v, -4...4);   changed.append("exposure \(fmt(g.exposure))") }
-                    if let v = input.brightness  { g.brightness  = Self.clampGrade(v, -1...1);   changed.append("brightness \(fmt(g.brightness))") }
-                    if let v = input.contrast    { g.contrast    = Self.clampGrade(v, 0...4);    changed.append("contrast \(fmt(g.contrast))") }
-                    if let v = input.saturation  { g.saturation  = Self.clampGrade(v, 0...4);    changed.append("saturation \(fmt(g.saturation))") }
-                    if let v = input.temperature { g.temperature = Self.clampGrade(v, -100...100); changed.append("temperature \(fmt(g.temperature))") }
-                    if let v = input.tint        { g.tint        = Self.clampGrade(v, -100...100); changed.append("tint \(fmt(g.tint))") }
-                    if let v = input.hue         { g.hue         = Self.clampGrade(v, -180...180); changed.append("hue \(fmt(g.hue))") }
-                    if let v = input.highlights  { g.highlights  = Self.clampGrade(v, -1...1);   changed.append("highlights \(fmt(g.highlights))") }
-                    if let v = input.shadows     { g.shadows     = Self.clampGrade(v, -1...1);   changed.append("shadows \(fmt(g.shadows))") }
-                    if let v = input.fade        { g.fade        = Self.clampGrade(v, 0...1);    changed.append("fade \(fmt(g.fade))") }
-                    if let v = input.sharpen     { g.sharpen     = Self.clampGrade(v, 0...1);    changed.append("sharpen \(fmt(g.sharpen))") }
-                    if let v = input.clarity     { g.clarity     = Self.clampGrade(v, 0...1);    changed.append("clarity \(fmt(g.clarity))") }
-                    if let v = input.vignette    { g.vignette    = Self.clampGrade(v, 0...1);    changed.append("vignette \(fmt(g.vignette))") }
-                    if let v = input.lookIntensity { g.lookIntensity = Self.clampGrade(v, 0...1); changed.append("lookIntensity \(fmt(g.lookIntensity))") }
-                    if let v = input.protectSkinTone { g.protectSkinTone = v ? 1 : 0; changed.append("protectSkinTone \(v ? "on" : "off")") }
-                    if let v = input.intensity   { g.intensity   = Self.clampGrade(v, 0...1);    changed.append("intensity \(fmt(g.intensity))") }
-                    if let c = parsedCurves.rgb   { g.curves.rgb   = c; changed.append("curves.rgb \(c.count)pts") }
-                    if let c = parsedCurves.red   { g.curves.red   = c; changed.append("curves.red \(c.count)pts") }
-                    if let c = parsedCurves.green { g.curves.green = c; changed.append("curves.green \(c.count)pts") }
-                    if let c = parsedCurves.blue  { g.curves.blue  = c; changed.append("curves.blue \(c.count)pts") }
-                    if let w = input.wheels {
-                        if w.reset == true { g.wheels = ColorWheels(); changed.append("wheels reset") }
-                        func merge(_ wheel: WheelInput?, into target: inout WheelAdjust, name: String) {
-                            guard let wheel else { return }
-                            if let v = wheel.r    { target.r    = Self.clampGrade(v, -1...1) }
-                            if let v = wheel.g    { target.g    = Self.clampGrade(v, -1...1) }
-                            if let v = wheel.b    { target.b    = Self.clampGrade(v, -1...1) }
-                            if let v = wheel.luma { target.luma = Self.clampGrade(v, -1...1) }
-                            changed.append("wheels.\(name)")
-                        }
-                        merge(w.lift, into: &g.wheels.lift, name: "lift")
-                        merge(w.gamma, into: &g.wheels.gamma, name: "gamma")
-                        merge(w.gain, into: &g.wheels.gain, name: "gain")
-                        merge(w.offset, into: &g.wheels.offset, name: "offset")
-                    }
-                    if let h = input.hsl {
-                        if h.reset == true { g.hsl = HSLAdjust(); changed.append("hsl reset") }
-                        for (i, band) in h.bands {
-                            let name = HSLAdjust.bandNames[i]
-                            if let v = band.hue        { g.hsl.hueShift[i]   = Self.clampGrade(v, -1...1); changed.append("\(name).hue \(fmt(g.hsl.hueShift[i]))") }
-                            if let v = band.saturation { g.hsl.saturation[i] = Self.clampGrade(v, -1...1); changed.append("\(name).sat \(fmt(g.hsl.saturation[i]))") }
-                            if let v = band.luminance  { g.hsl.luminance[i]  = Self.clampGrade(v, -1...1); changed.append("\(name).lum \(fmt(g.hsl.luminance[i]))") }
-                        }
-                    }
-                    clip.grade = g
+                    let (grade, changed) = channels.merged(over: clip.grade)
+                    clip.grade = grade
+                    summary = changed.joined(separator: ", ")
                 }
-                if input.reset == true && changed.isEmpty {
-                    out.append("\(id): reset to neutral")
-                } else {
-                    out.append("\(id): \(changed.joined(separator: ", "))")
-                }
+                out.append("\(id): \(summary.isEmpty ? "no change" : summary)")
             }
             return out
         }
 
-        let n = input.clipIds.count
+        let n = clipIds.count
         return .ok("Graded \(n) clip\(n == 1 ? "" : "s"): \(summaries.joined(separator: "; "))")
     }
 }

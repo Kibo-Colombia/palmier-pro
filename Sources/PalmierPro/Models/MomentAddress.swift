@@ -14,6 +14,11 @@ struct MomentAddress: Codable, Hashable, Identifiable, Sendable {
     var relativePath: String
     var shotStart: Double?
     var shotEnd: Double?
+    /// Content fingerprint of the file (see `AssetIdentity`) — the fallback identity that
+    /// lets a moment re-find its file after an in-root rename/move breaks `relativePath`.
+    /// Optional so pre-v2 Space JSON still decodes; stamped lazily. Excluded from
+    /// equality/hashing: the same moment with and without a stamp must dedup as one.
+    var contentKey: String?
 
     var id: String { dragString }
 
@@ -24,11 +29,30 @@ struct MomentAddress: Codable, Hashable, Identifiable, Sendable {
         (relativePath as NSString).lastPathComponent
     }
 
-    init(rootLabel: String, relativePath: String, shotStart: Double? = nil, shotEnd: Double? = nil) {
+    init(
+        rootLabel: String,
+        relativePath: String,
+        shotStart: Double? = nil,
+        shotEnd: Double? = nil,
+        contentKey: String? = nil
+    ) {
         self.rootLabel = rootLabel
         self.relativePath = relativePath
         self.shotStart = shotStart
         self.shotEnd = shotEnd
+        self.contentKey = contentKey
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.rootLabel == rhs.rootLabel && lhs.relativePath == rhs.relativePath
+            && lhs.shotStart == rhs.shotStart && lhs.shotEnd == rhs.shotEnd
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(rootLabel)
+        hasher.combine(relativePath)
+        hasher.combine(shotStart)
+        hasher.combine(shotEnd)
     }
 
     // MARK: - Drag payload (`palmier-moment://<rootLabel>/<relpath>#start-end`)

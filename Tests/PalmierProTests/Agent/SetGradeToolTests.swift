@@ -1,0 +1,112 @@
+import Foundation
+import Testing
+@testable import PalmierPro
+
+/// Coverage for the extended set_grade surface: the CapCut-parity scalars, clamping,
+/// and the structured hsl parameter. (The legacy 7 channels are covered by older suites.)
+@Suite("set_grade — extended channels")
+@MainActor
+struct SetGradeToolTests {
+
+    private func harness() -> (ToolHarness, String) {
+        let clip = Fixtures.clip(id: "c1", start: 0, duration: 60)
+        let h = ToolHarness(timeline: Fixtures.timeline(tracks: [Fixtures.videoTrack(clips: [clip])]))
+        return (h, "c1")
+    }
+
+    private func grade(_ h: ToolHarness, _ id: String) -> ColorGrade {
+        h.editor.clipFor(id: id)!.grade
+    }
+
+    @Test func newScalarsApplyAndClamp() async throws {
+        let (h, id) = harness()
+        let result = await h.runRaw("set_grade", args: [
+            "clipIds": [id],
+            "hue": 200.0,          // clamps to 180
+            "highlights": -0.5,
+            "shadows": 0.25,
+            "fade": 0.3,
+            "sharpen": 5.0,        // clamps to 1
+            "clarity": 0.4,
+            "vignette": 0.6,
+            "lookIntensity": 0.7,
+            "protectSkinTone": true,
+        ])
+        #expect(!result.isError, Comment(rawValue: ToolHarness.textOf(result)))
+        let g = grade(h, id)
+        #expect(g.hue == 180)
+        #expect(g.highlights == -0.5)
+        #expect(g.shadows == 0.25)
+        #expect(g.fade == 0.3)
+        #expect(g.sharpen == 1)
+        #expect(g.clarity == 0.4)
+        #expect(g.vignette == 0.6)
+        #expect(g.lookIntensity == 0.7)
+        #expect(g.protectSkinTone == 1)
+        #expect(!g.isIdentity)
+        #expect(g.needsCorrectionCube)   // highlights/shadows/fade route through the cube
+    }
+
+    @Test func hslBandsPartialMerge() async throws {
+        let (h, id) = harness()
+        var r = await h.runRaw("set_grade", args: [
+            "clipIds": [id],
+            "hsl": ["orange": ["saturation": -0.3], "blue": ["hue": 0.5, "luminance": -0.2]],
+        ])
+        #expect(!r.isError, Comment(rawValue: ToolHarness.textOf(r)))
+        var g = grade(h, id)
+        #expect(g.hsl.saturation[1] == -0.3)   // orange = band 1
+        #expect(g.hsl.hueShift[5] == 0.5)      // blue = band 5
+        #expect(g.hsl.luminance[5] == -0.2)
+        #expect(g.hsl.hueShift[0] == 0)        // untouched bands stay neutral
+
+        // Second call touches a different band — earlier bands persist (partial merge).
+        r = await h.runRaw("set_grade", args: [
+            "clipIds": [id],
+            "hsl": ["red": ["hue": 2.0]],      // clamps to 1
+        ])
+        #expect(!r.isError)
+        g = grade(h, id)
+        #expect(g.hsl.hueShift[0] == 1)
+        #expect(g.hsl.saturation[1] == -0.3)   // still there
+
+        // reset inside hsl clears all bands, then applies the rest of the call.
+        r = await h.runRaw("set_grade", args: [
+            "clipIds": [id],
+            "hsl": ["reset": true, "green": ["luminance": 0.4]],
+        ])
+        #expect(!r.isError)
+        g = grade(h, id)
+        #expect(g.hsl.hueShift[0] == 0)
+        #expect(g.hsl.saturation[1] == 0)
+        #expect(g.hsl.luminance[3] == 0.4)     // green = band 3
+    }
+
+    @Test func resetClearsExtendedChannels() async throws {
+        let (h, id) = harness()
+        _ = await h.runRaw("set_grade", args: [
+            "clipIds": [id], "fade": 0.5, "vignette": 0.8,
+            "hsl": ["cyan": ["saturation": 0.9]],
+        ])
+        let r = await h.runRaw("set_grade", args: ["clipIds": [id], "reset": true])
+        #expect(!r.isError)
+        let g = grade(h, id)
+        #expect(g == ColorGrade())
+    }
+
+    @Test func unknownHSLBandRejected() async {
+        let (h, id) = harness()
+        let r = await h.runRaw("set_grade", args: [
+            "clipIds": [id],
+            "hsl": ["chartreuse": ["saturation": 1]],
+        ])
+        #expect(r.isError)
+    }
+
+    @Test func audioClipRejected() async {
+        let clip = Fixtures.clip(id: "a1", mediaType: .audio, start: 0, duration: 60)
+        let h = ToolHarness(timeline: Fixtures.timeline(tracks: [Fixtures.audioTrack(clips: [clip])]))
+        let r = await h.runRaw("set_grade", args: ["clipIds": ["a1"], "fade": 0.5])
+        #expect(r.isError)
+    }
+}

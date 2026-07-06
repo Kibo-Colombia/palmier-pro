@@ -18,7 +18,7 @@ struct ColorSectionView: View {
                     subTabBar
                     switch subTab {
                     case .basic:  ColorBasicTab(clips: clips)
-                    case .hsl:    comingSoon("HSL")
+                    case .hsl:    ColorHSLTab(clips: clips)
                     case .curves: comingSoon("Curves")
                     case .wheels: comingSoon("Wheels")
                     case .mask:   comingSoon("Mask")

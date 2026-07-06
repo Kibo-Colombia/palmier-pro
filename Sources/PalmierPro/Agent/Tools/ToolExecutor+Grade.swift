@@ -2,6 +2,34 @@ import Foundation
 
 // MARK: set_grade — per-clip primary color correction (grade by conversation)
 
+/// One HSL band's partial adjustment (all −1…1). Omitted components keep their value.
+fileprivate struct HSLBandInput: Decodable {
+    let hue: Double?
+    let saturation: Double?
+    let luminance: Double?
+}
+
+/// Partial per-band HSL: only the bands present are touched; `reset` clears all bands first.
+fileprivate struct HSLInput: Decodable {
+    let red: HSLBandInput?
+    let orange: HSLBandInput?
+    let yellow: HSLBandInput?
+    let green: HSLBandInput?
+    let cyan: HSLBandInput?
+    let blue: HSLBandInput?
+    let purple: HSLBandInput?
+    let magenta: HSLBandInput?
+    let reset: Bool?
+
+    var bands: [(index: Int, input: HSLBandInput)] {
+        [red, orange, yellow, green, cyan, blue, purple, magenta]
+            .enumerated()
+            .compactMap { i, b in b.map { (i, $0) } }
+    }
+
+    var hasAnyField: Bool { !bands.isEmpty || reset == true }
+}
+
 fileprivate struct SetGradeInput: DecodableToolArgs {
     let clipIds: [String]
     let exposure: Double?
@@ -20,13 +48,14 @@ fileprivate struct SetGradeInput: DecodableToolArgs {
     let lookIntensity: Double?
     let protectSkinTone: Bool?
     let intensity: Double?
+    let hsl: HSLInput?
     let reset: Bool?
 
     static let allowedKeys: Set<String> = [
         "clipIds", "exposure", "brightness", "contrast", "saturation",
         "temperature", "tint", "hue", "highlights", "shadows", "fade",
         "sharpen", "clarity", "vignette", "lookIntensity", "protectSkinTone",
-        "intensity", "reset",
+        "intensity", "hsl", "reset",
     ]
 
     var hasAnyField: Bool {
@@ -34,7 +63,7 @@ fileprivate struct SetGradeInput: DecodableToolArgs {
             || temperature != nil || tint != nil || hue != nil || highlights != nil
             || shadows != nil || fade != nil || sharpen != nil || clarity != nil
             || vignette != nil || lookIntensity != nil || protectSkinTone != nil
-            || intensity != nil || reset == true
+            || intensity != nil || hsl?.hasAnyField == true || reset == true
     }
 }
 
@@ -45,6 +74,15 @@ extension ToolExecutor {
     }
 
     func setGrade(_ editor: EditorViewModel, _ args: [String: Any]) throws -> ToolResult {
+        // JSONDecoder silently drops unknown keys — reject misspelled band names explicitly.
+        if let rawHSL = args["hsl"] as? [String: Any] {
+            try validateUnknownKeys(rawHSL, allowed: Set(HSLAdjust.bandNames + ["reset"]), path: "set_grade.hsl")
+            for (band, value) in rawHSL where band != "reset" {
+                if let components = value as? [String: Any] {
+                    try validateUnknownKeys(components, allowed: ["hue", "saturation", "luminance"], path: "set_grade.hsl.\(band)")
+                }
+            }
+        }
         let input: SetGradeInput = try decodeToolArgs(args, path: "set_grade")
         guard !input.clipIds.isEmpty else { throw ToolError("Missing or empty 'clipIds' array") }
         guard input.hasAnyField else {
@@ -84,6 +122,15 @@ extension ToolExecutor {
                     if let v = input.lookIntensity { g.lookIntensity = Self.clampGrade(v, 0...1); changed.append("lookIntensity \(fmt(g.lookIntensity))") }
                     if let v = input.protectSkinTone { g.protectSkinTone = v ? 1 : 0; changed.append("protectSkinTone \(v ? "on" : "off")") }
                     if let v = input.intensity   { g.intensity   = Self.clampGrade(v, 0...1);    changed.append("intensity \(fmt(g.intensity))") }
+                    if let h = input.hsl {
+                        if h.reset == true { g.hsl = HSLAdjust(); changed.append("hsl reset") }
+                        for (i, band) in h.bands {
+                            let name = HSLAdjust.bandNames[i]
+                            if let v = band.hue        { g.hsl.hueShift[i]   = Self.clampGrade(v, -1...1); changed.append("\(name).hue \(fmt(g.hsl.hueShift[i]))") }
+                            if let v = band.saturation { g.hsl.saturation[i] = Self.clampGrade(v, -1...1); changed.append("\(name).sat \(fmt(g.hsl.saturation[i]))") }
+                            if let v = band.luminance  { g.hsl.luminance[i]  = Self.clampGrade(v, -1...1); changed.append("\(name).lum \(fmt(g.hsl.luminance[i]))") }
+                        }
+                    }
                     clip.grade = g
                 }
                 if input.reset == true && changed.isEmpty {

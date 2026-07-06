@@ -121,6 +121,7 @@ extension EditorViewModel {
     }
 
     func clipDisplayLabel(for clip: Clip) -> String {
+        if clip.mediaType == .adjustment { return "Adjust" }
         if clip.mediaType == .text {
             let content = clip.textContent ?? ""
             if content.isEmpty { return "Text" }
@@ -136,11 +137,11 @@ extension EditorViewModel {
     }
 
     func isClipMediaMissing(_ clip: Clip) -> Bool {
-        clip.mediaType != .text && mediaResolver.isMissing(for: clip.mediaRef)
+        clip.mediaType.buildsCompositionTrack && mediaResolver.isMissing(for: clip.mediaRef)
     }
 
     func isClipMediaGenerating(_ clip: Clip) -> Bool {
-        guard clip.mediaType != .text else { return false }
+        guard clip.mediaType.buildsCompositionTrack else { return false }
         return mediaAssets.first(where: { $0.id == clip.mediaRef })?.isGenerating ?? false
     }
 
@@ -343,7 +344,7 @@ extension EditorViewModel {
             mediaVisualCache.generateWaveform(for: asset)
         case .image:
             mediaVisualCache.generateImageThumbnail(for: asset)
-        case .text, .lottie:
+        case .text, .lottie, .adjustment:
             break
         }
     }

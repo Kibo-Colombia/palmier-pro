@@ -4,6 +4,7 @@ enum ClipType: String, Codable, Sendable, CaseIterable {
     case image
     case text
     case lottie
+    case adjustment
 
     var sfSymbolName: String {
         switch self {
@@ -12,6 +13,7 @@ enum ClipType: String, Codable, Sendable, CaseIterable {
         case .image: "photo"
         case .text: "textformat"
         case .lottie: "sparkles"
+        case .adjustment: "camera.filters"
         }
     }
 
@@ -22,13 +24,21 @@ enum ClipType: String, Codable, Sendable, CaseIterable {
         case .image: "Image"
         case .text: "Text"
         case .lottie: "Lottie"
+        case .adjustment: "Adjust"
         }
     }
 
     var trackLabelPrefix: String { String(trackLabel.prefix(1)) }
 
     var isVisual: Bool {
-        self == .video || self == .image || self == .text || self == .lottie
+        self == .video || self == .image || self == .text || self == .lottie || self == .adjustment
+    }
+
+    /// Whether clips of this type occupy an AVComposition track. Text renders via the
+    /// Core Animation tool and adjustment layers are applied by the GradeCompositor to the
+    /// composited stack — neither has source media to load.
+    var buildsCompositionTrack: Bool {
+        self != .text && self != .adjustment
     }
 
     func isCompatible(with other: ClipType) -> Bool {

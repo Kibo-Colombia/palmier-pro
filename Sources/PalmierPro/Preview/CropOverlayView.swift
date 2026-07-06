@@ -242,7 +242,8 @@ struct CropOverlayView: View {
               !editor.selectedClipIds.isEmpty else { return nil }
         var match: Clip?
         for track in editor.timeline.tracks where track.type != .audio {
-            for clip in track.clips where editor.selectedClipIds.contains(clip.id) && clip.mediaType != .text {
+            for clip in track.clips where editor.selectedClipIds.contains(clip.id) && clip.mediaType != .text
+                && clip.mediaType != .adjustment {
                 if match != nil { return nil }
                 match = clip
             }

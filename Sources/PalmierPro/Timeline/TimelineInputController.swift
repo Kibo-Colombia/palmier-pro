@@ -140,7 +140,7 @@ final class TimelineInputController {
                     originalTrimEnd: clip.trimEndFrame,
                     originalStartFrame: clip.startFrame,
                     originalDuration: clip.durationFrames,
-                    hasNoSourceMedia: clip.mediaType == .image || clip.mediaType == .text,
+                    hasNoSourceMedia: clip.mediaType == .image || clip.mediaType == .text || clip.mediaType == .adjustment,
                     propagateToLinked: linkedOn
                 ))
             } else if !isOption, localX >= rect.width - Trim.handleWidth {
@@ -151,7 +151,7 @@ final class TimelineInputController {
                     originalTrimEnd: clip.trimEndFrame,
                     originalStartFrame: clip.startFrame,
                     originalDuration: clip.durationFrames,
-                    hasNoSourceMedia: clip.mediaType == .image || clip.mediaType == .text,
+                    hasNoSourceMedia: clip.mediaType == .image || clip.mediaType == .text || clip.mediaType == .adjustment,
                     propagateToLinked: linkedOn
                 ))
             } else {

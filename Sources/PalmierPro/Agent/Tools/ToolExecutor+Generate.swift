@@ -28,6 +28,8 @@ extension ToolExecutor {
             return try generateImage(editor, args, prompt: prompt)
         case .audio:
             throw ToolError("internal: audio generation is dispatched via the async path")
+        case .adjustment:
+            throw ToolError("Adjustment layers are not generated media.")
         case .text:
             throw ToolError("Text generation is not wired through the generate tool.")
         case .lottie:

@@ -772,12 +772,24 @@ final class TimelineView: NSView {
             item.representedObject = ["trackIndex": trackIndex, "frame": frame] as [String: Any]
             menu.addItem(item)
         }
+        if !menu.items.isEmpty { menu.addItem(.separator()) }
+        let adjustItem = NSMenuItem(title: "Add Adjustment Layer", action: #selector(performAddAdjustmentLayer(_:)), keyEquivalent: "")
+        adjustItem.target = self
+        adjustItem.representedObject = frame
+        menu.addItem(adjustItem)
         if clickedRange {
             if !menu.items.isEmpty { menu.addItem(.separator()) }
             addTimelineRangeItems(to: menu)
         }
         guard !menu.items.isEmpty else { return nil }
         return menu
+    }
+
+    @objc private func performAddAdjustmentLayer(_ sender: Any?) {
+        let frame = (sender as? NSMenuItem)?.representedObject as? Int ?? editor.currentFrame
+        let duration = editor.timeline.fps * 3
+        editor.addAdjustmentLayer(startFrame: frame, durationFrames: duration)
+        needsDisplay = true
     }
 
     private func addTimelineRangeItems(to menu: NSMenu) {

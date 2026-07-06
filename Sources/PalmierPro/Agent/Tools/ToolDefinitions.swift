@@ -12,6 +12,7 @@ enum ToolName: String, CaseIterable, Sendable {
     case setKeyframes = "set_keyframes"
     case setGrade = "set_grade"
     case setMask = "set_mask"
+    case addAdjustmentLayer = "add_adjustment_layer"
     case applyLook = "apply_look"
     case listLooks = "list_looks"
     case importLook = "import_look"
@@ -291,6 +292,18 @@ enum ToolDefinitions {
                     "reset": ["type": "boolean", "description": "Reset the mask to defaults (shape none) before applying fields."],
                 ],
                 required: ["clipIds"]
+            )
+        ),
+        AgentTool(
+            name: .addAdjustmentLayer,
+            description: "Add a CapCut-style adjustment layer: a media-less clip whose color grade applies to EVERYTHING on the tracks below it, across its timeline range. Perfect for grading a whole scene or section at once instead of per-clip.\n\nAfter creating it, give it a grade with set_grade (all channels work: LUT via apply_look, hsl, curves, wheels, …), optionally limit it spatially with set_mask (coordinates span the whole canvas), and animate with set_keyframes. The layer's opacity fades its effect; trim/move/split it like any clip. Returns the new clipId.",
+            inputSchema: objectSchema(
+                properties: [
+                    "startFrame": ["type": "integer", "description": "Timeline frame where the layer starts."],
+                    "durationFrames": ["type": "integer", "description": "Length in frames."],
+                    "trackIndex": ["type": "integer", "description": "Video track to place it on (0 = frontmost). Omit to create a new track above all — it then affects the entire stack."],
+                ],
+                required: ["startFrame", "durationFrames"]
             )
         ),
         AgentTool(

@@ -73,7 +73,7 @@ extension MediaTab {
         switch asset.type {
         case .video, .image: return asset.thumbnail == nil ? .loading : .ready
         case .audio, .lottie: return asset.duration <= 0 ? .loading : .ready
-        case .text: return .ready
+        case .text, .adjustment: return .ready
         }
     }
 

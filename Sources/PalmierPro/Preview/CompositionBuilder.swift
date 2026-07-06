@@ -47,10 +47,11 @@ enum CompositionBuilder {
         var clipTransforms: [String: CGAffineTransform] = [:]
 
         for (trackIdx, track) in timeline.tracks.enumerated() {
-            // Text renders via CATextLayer overlay (preview) + animation tool (export) — never as composition tracks.
+            // Text renders via CATextLayer overlay (preview) + animation tool (export); adjustment
+            // layers are applied by the GradeCompositor — neither becomes a composition track.
             let sortedClips = track.clips
                 .sorted { $0.startFrame < $1.startFrame }
-                .filter { $0.mediaType != .text }
+                .filter { $0.mediaType.buildsCompositionTrack }
             guard !sortedClips.isEmpty else { continue }
             let isAudio = track.type == .audio
             let mediaType: AVMediaType = isAudio ? .audio : .video
@@ -401,7 +402,7 @@ enum CompositionBuilder {
                 if let track, !track.hidden {
                     var prevEndFrame = Int.min
                     for clip in track.clips.sorted(by: { $0.startFrame < $1.startFrame })
-                        where clip.mediaType != .text {
+                        where clip.mediaType.buildsCompositionTrack {
                         if let clipIds, !clipIds.contains(clip.id) { continue }
                         guard clip.durationFrames > 0, clip.startFrame >= prevEndFrame else { continue }
                         let start = CMTime(value: CMTimeValue(clip.startFrame), timescale: timescale)
@@ -479,7 +480,7 @@ enum CompositionBuilder {
             let track = timeline.tracks[trackIndex]
             let renders: [GradeClipRender] = track.clips
                 .sorted { $0.startFrame < $1.startFrame }
-                .filter { $0.mediaType != .text }
+                .filter { $0.mediaType.buildsCompositionTrack }
                 .filter { clipIds?.contains($0.id) ?? true }
                 .map { clip in
                     let lutId = clip.grade.lut ?? clip.gradeTrack?.keyframes.lazy.compactMap { $0.value.lut }.first
@@ -508,11 +509,39 @@ enum CompositionBuilder {
             tracks.append(GradeTrackRender(
                 trackID: mapping.compositionTrack.trackID,
                 hidden: track.hidden,
-                clips: renders
+                clips: renders,
+                timelineTrackIndex: trackIndex
             ))
         }
+
+        // Adjustment layers: media-less clips collected straight from the timeline (they never
+        // become composition tracks); the compositor applies them to the stack below by index.
+        var adjustments: [GradeAdjustmentRender] = []
+        for (trackIndex, track) in timeline.tracks.enumerated() where track.type != .audio {
+            for clip in track.clips where clip.mediaType == .adjustment {
+                let lutId = clip.grade.lut ?? clip.gradeTrack?.keyframes.lazy.compactMap { $0.value.lut }.first
+                var cube = lutId.flatMap { LUTStore.shared.cube(for: $0, resolveURL: resolveURL) }
+                if let id = lutId, let base = cube, clip.grade.protectSkinTone > 0 {
+                    cube = GradeCubeCache.shared.skinProtectedCube(
+                        lutId: id, base: base, protect: clip.grade.protectSkinTone)
+                }
+                let correction: LUTCube? = (clip.gradeTrack == nil && clip.grade.needsCorrectionCube)
+                    ? GradeCubeCache.shared.correctionCube(for: clip.grade)
+                    : nil
+                adjustments.append(GradeAdjustmentRender(
+                    clip: clip,
+                    cube: cube,
+                    correctionCube: correction,
+                    timelineTrackIndex: trackIndex,
+                    hidden: track.hidden
+                ))
+            }
+        }
+        if adjustments.contains(where: { !$0.hidden && $0.clip.hasNonIdentityGrade }) { anyGrade = true }
+
         guard anyGrade else { return nil }
-        let model = GradeRenderModel(fps: timeline.fps, renderSize: renderSize, tracks: tracks)
+        let model = GradeRenderModel(fps: timeline.fps, renderSize: renderSize,
+                                     tracks: tracks, adjustments: adjustments)
         return GradeInstruction(
             timeRange: CMTimeRange(start: .zero, duration: compositionDuration),
             model: model

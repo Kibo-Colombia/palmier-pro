@@ -139,6 +139,8 @@ enum AppTheme {
         static let image = NSColor(red: 0xB7/255.0, green: 0x2D/255.0, blue: 0xD2/255.0, alpha: 1)
         static let text = NSColor(red: 0xB7/255.0, green: 0x2D/255.0, blue: 0xD2/255.0, alpha: 1)
         static let lottie = NSColor(red: 0xE0/255.0, green: 0xA8/255.0, blue: 0x00/255.0, alpha: 1)
+        /// Adjustment layers — CapCut-style mustard, distinct from every media color.
+        static let adjustment = NSColor(red: 0xC8/255.0, green: 0x8A/255.0, blue: 0x1F/255.0, alpha: 1)
     }
 
     // MARK: - Corner radii
@@ -316,6 +318,7 @@ extension ClipType {
         case .image: AppTheme.TrackColor.image
         case .text: AppTheme.TrackColor.text
         case .lottie: AppTheme.TrackColor.lottie
+        case .adjustment: AppTheme.TrackColor.adjustment
         }
     }
 }

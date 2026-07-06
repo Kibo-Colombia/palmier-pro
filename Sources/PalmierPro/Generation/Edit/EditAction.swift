@@ -16,7 +16,7 @@ enum EditAction {
         switch asset.type {
         case .image: candidates = [.upscale, .edit, .rerun, .createVideo]
         case .video: candidates = [.upscale, .edit, .generateMusic, .generateSFX, .rerun]
-        case .audio, .text: candidates = [.upscale, .edit, .rerun]
+        case .audio, .text, .adjustment: candidates = [.upscale, .edit, .rerun]
         case .lottie: candidates = []
         }
         return candidates.filter {
@@ -65,6 +65,8 @@ enum EditAction {
                 return .disabled(reason: "Edit doesn't support text")
             case .lottie:
                 return .disabled(reason: "Edit doesn't support Lottie")
+            case .adjustment:
+                return .disabled(reason: "Edit doesn't support adjustment layers")
             }
             if asset.isGenerating {
                 return .disabled(reason: "Generation in progress")

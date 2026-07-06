@@ -222,6 +222,31 @@ extension EditorViewModel {
     }
 
     /// Run `work` as a single atomic mutation, registering one timeline-swap undo
+    /// Insert a media-less adjustment-layer clip: its color grade applies to everything on
+    /// lower tracks across its range. `trackIndex` nil (or invalid) creates a new video track
+    /// above all existing tracks, CapCut-style.
+    @discardableResult
+    func addAdjustmentLayer(startFrame: Int, durationFrames: Int, trackIndex: Int? = nil) -> String {
+        var clip = Clip(mediaRef: "", startFrame: max(0, startFrame), durationFrames: max(1, durationFrames))
+        clip.mediaType = .adjustment
+        clip.sourceClipType = .adjustment
+        let id = clip.id
+        withTimelineSwap(actionName: "Add Adjustment Layer") {
+            let idx: Int
+            if let trackIndex, timeline.tracks.indices.contains(trackIndex),
+               timeline.tracks[trackIndex].type != .audio {
+                idx = trackIndex
+            } else {
+                timeline.tracks.insert(Track(type: .video), at: 0)
+                idx = 0
+            }
+            timeline.tracks[idx].clips.append(clip)
+            timeline.tracks[idx].clips.sort { $0.startFrame < $1.startFrame }
+        }
+        selectedClipIds = [id]
+        return id
+    }
+
     func withTimelineSwap(actionName: String, _ work: () -> Void) {
         let before = timeline
         undoManager?.disableUndoRegistration()

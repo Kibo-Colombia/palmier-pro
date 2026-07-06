@@ -289,13 +289,17 @@ struct InspectorView: View {
         let clips = nonTextVisualClips
         let single = clips.count == 1 ? clips.first : nil
         let kfVisible = single != nil && editor.keyframesPanelVisible
+        // Adjustment layers carry only a grade + mask — transform/speed don't render for them.
+        let adjustmentOnly = !clips.isEmpty && clips.allSatisfy { $0.mediaType == .adjustment }
 
         if let clip = single, kfVisible {
             HStack(alignment: .top, spacing: 0) {
                 VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
-                    transformSection(clips: clips)
-                    speedSection(clips: clips + selectedAudioClips)
-                        .padding(.trailing, KeyframesMetrics.controlsColumnWidth + AppTheme.Spacing.sm)
+                    if !adjustmentOnly {
+                        transformSection(clips: clips)
+                        speedSection(clips: clips + selectedAudioClips)
+                            .padding(.trailing, KeyframesMetrics.controlsColumnWidth + AppTheme.Spacing.sm)
+                    }
                     ColorSectionView(clips: clips)
                         .padding(.trailing, KeyframesMetrics.controlsColumnWidth + AppTheme.Spacing.sm)
                 }
@@ -307,8 +311,10 @@ struct InspectorView: View {
                     .padding(.leading, AppTheme.Spacing.sm)
             }
         } else {
-            transformSection(clips: clips)
-            speedSection(clips: clips + selectedAudioClips)
+            if !adjustmentOnly {
+                transformSection(clips: clips)
+                speedSection(clips: clips + selectedAudioClips)
+            }
             ColorSectionView(clips: clips)
         }
 

@@ -55,7 +55,7 @@ extension ToolExecutor {
             switch info.target {
             case .text where clip.mediaType != .text:
                 throw ToolError("Preset '\(kind.rawValue)' is a caption animation — clip \(id) is \(clip.mediaType.rawValue), not text.")
-            case .visual where clip.mediaType == .audio || clip.mediaType == .text:
+            case .visual where clip.mediaType == .audio || clip.mediaType == .text || clip.mediaType == .adjustment:
                 throw ToolError("Preset '\(kind.rawValue)' applies to visual clips — clip \(id) is \(clip.mediaType.rawValue).")
             default:
                 break
@@ -100,7 +100,7 @@ extension ToolExecutor {
             switch info.target {
             case .text where baseClip.mediaType != .text:
                 throw ToolError("Candidate '\(kind.rawValue)' is a caption animation but \(clipId) is \(baseClip.mediaType.rawValue).")
-            case .visual where baseClip.mediaType == .audio || baseClip.mediaType == .text:
+            case .visual where baseClip.mediaType == .audio || baseClip.mediaType == .text || baseClip.mediaType == .adjustment:
                 throw ToolError("Candidate '\(kind.rawValue)' is for visual clips but \(clipId) is \(baseClip.mediaType.rawValue).")
             default:
                 break

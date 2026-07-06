@@ -283,6 +283,39 @@ struct SetGradeToolTests {
         #expect(clip.maskAt(frame: 15).centerX == 0.5)   // linear midpoint
     }
 
+    @Test func addAdjustmentLayerCreatesGradableClip() async throws {
+        let (h, _) = harness()
+        let tracksBefore = h.editor.timeline.tracks.count
+        let r = await h.runRaw("add_adjustment_layer", args: ["startFrame": 10, "durationFrames": 45])
+        #expect(!r.isError, Comment(rawValue: ToolHarness.textOf(r)))
+        #expect(h.editor.timeline.tracks.count == tracksBefore + 1)   // new top track
+
+        let clip = try #require(h.editor.timeline.tracks[0].clips.first)
+        #expect(clip.mediaType == .adjustment)
+        #expect(clip.startFrame == 10 && clip.durationFrames == 45)
+        #expect(!clip.mediaType.buildsCompositionTrack)
+
+        // It grades and masks like any visual clip.
+        let g = await h.runRaw("set_grade", args: ["clipIds": [clip.id], "saturation": 0.0, "fade": 0.4])
+        #expect(!g.isError)
+        let m = await h.runRaw("set_mask", args: ["clipIds": [clip.id], "shape": "linear", "rotation": 90.0])
+        #expect(!m.isError)
+        let updated = h.editor.clipFor(id: clip.id)!
+        #expect(updated.grade.saturation == 0 && updated.mask.shape == .linear)
+        #expect(updated.hasNonIdentityGrade)
+    }
+
+    @Test func addAdjustmentLayerValidatesTrackIndex() async {
+        let (h, _) = harness()
+        #expect(await h.runRaw("add_adjustment_layer", args: ["startFrame": 0, "durationFrames": 0]).isError)
+        #expect(await h.runRaw("add_adjustment_layer", args: ["startFrame": 0, "durationFrames": 30, "trackIndex": 99]).isError)
+
+        // Audio tracks are rejected as placement targets.
+        let audioClip = Fixtures.clip(id: "au", mediaType: .audio, start: 0, duration: 30)
+        let h2 = ToolHarness(timeline: Fixtures.timeline(tracks: [Fixtures.audioTrack(clips: [audioClip])]))
+        #expect(await h2.runRaw("add_adjustment_layer", args: ["startFrame": 0, "durationFrames": 30, "trackIndex": 0]).isError)
+    }
+
     @Test func audioClipRejected() async {
         let clip = Fixtures.clip(id: "a1", mediaType: .audio, start: 0, duration: 60)
         let h = ToolHarness(timeline: Fixtures.timeline(tracks: [Fixtures.audioTrack(clips: [clip])]))

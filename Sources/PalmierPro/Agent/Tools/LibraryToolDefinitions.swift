@@ -14,6 +14,10 @@ enum LibraryToolName: String, CaseIterable, Sendable {
     case removeFromSpace = "remove_from_space"
     case renameSpace = "rename_space"
     case removeSpace = "remove_space"
+    case listFolder = "list_folder"
+    case createFolder = "create_folder"
+    case moveFile = "move_file"
+    case renameFile = "rename_file"
 }
 
 enum LibraryToolDefinitions {
@@ -97,6 +101,44 @@ enum LibraryToolDefinitions {
             obj(properties: [
                 "spaceId": ["type": "string", "description": "Space id to delete."],
             ], required: ["spaceId"])
+        ),
+        schema(
+            .listFolder,
+            "Lists a folder's contents — ANY file type, not just video (this is how you see .m4a, .LRF proxies, project scratch, etc.). Each entry: {name, path, kind: file|folder, sizeBytes, modified, isVideo, indexed (visually understood)}. Scope: library roots and ~/Movies only. Use together with list_library when proposing how to physically organize footage.",
+            obj(properties: [
+                "path": ["type": "string", "description": "Absolute folder path (under a library root or ~/Movies)."],
+                "depth": ["type": "integer", "description": "How many levels to descend (default 1 = just this folder)."],
+            ], required: ["path"])
+        ),
+        schema(
+            .createFolder,
+            "Creates a folder (with intermediate folders) under a library root or ~/Movies.",
+            obj(properties: [
+                "path": ["type": "string", "description": "Absolute folder path to create."],
+            ], required: ["path"])
+        ),
+        schema(
+            .moveFile,
+            "Moves files on disk — the ONLY tool that physically reorganizes footage. Content-based identity means a moved file keeps ALL its understanding (labels, transcript, summaries) and its Space memberships are repaired automatically. Safety: never overwrites, never deletes, both ends must be under a library root or ~/Movies. ALWAYS run with dryRun:true first, show the user the plan, and only execute after they confirm. Batch related moves into one call. Remember: a DJI .MP4 has a matching .LRF proxy — move them together.",
+            obj(properties: [
+                "moves": ["type": "array", "description": "One entry per file.", "items": [
+                    "type": "object",
+                    "properties": [
+                        "source": ["type": "string", "description": "Absolute path of the file to move."],
+                        "destination": ["type": "string", "description": "Absolute target path INCLUDING the filename. Parent folders are created as needed."],
+                    ],
+                    "required": ["source", "destination"],
+                ]],
+                "dryRun": ["type": "boolean", "description": "true = validate and report what would happen without touching the disk (default false)."],
+            ], required: ["moves"])
+        ),
+        schema(
+            .renameFile,
+            "Renames a file in place (a rename is a move). Same identity guarantees and safety rails as move_file. Files whose names already carry a date (DJI_YYYYMMDD…, timestamped phone clips) should usually keep them.",
+            obj(properties: [
+                "path": ["type": "string", "description": "Absolute path of the file to rename."],
+                "newName": ["type": "string", "description": "New filename (with extension), no directory components."],
+            ], required: ["path", "newName"])
         ),
     ]
 

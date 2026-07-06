@@ -2,7 +2,8 @@ import Foundation
 
 /// The home screen's tool host. Reads the cross-project Library (`RootsRegistry`, on-disk label
 /// sidecars) and mutates `SpaceRegistry`. No `EditorViewModel` — there's no open project here.
-/// Footage is never moved, copied, or deleted; only Spaces (groupings) and their membership change.
+/// Spaces never touch footage; the explicit organizer tools (`move_file`/`rename_file`) are the
+/// one sanctioned way to physically reorganize, and they never overwrite or delete.
 @MainActor
 final class LibraryToolExecutor: AgentToolHost {
     var toolSchemas: [AnthropicToolSchema] { LibraryToolDefinitions.all }
@@ -24,6 +25,10 @@ final class LibraryToolExecutor: AgentToolHost {
             case .removeFromSpace: return try removeFromSpace(args)
             case .renameSpace:    return try renameSpace(args)
             case .removeSpace:    return try removeSpace(args)
+            case .listFolder:     return try listFolder(args)
+            case .createFolder:   return try createFolder(args)
+            case .moveFile:       return try moveFile(args)
+            case .renameFile:     return try renameFile(args)
             }
         } catch let err as ToolError {
             return .error(err.message)
@@ -275,6 +280,111 @@ final class LibraryToolExecutor: AgentToolHost {
         let space = try resolveSpace(args)
         SpaceRegistry.shared.remove(space.id)
         return jsonResult(["ok": true])
+    }
+
+    // MARK: - Organizer (physical files — the only tools that touch the disk)
+
+    private static let videoExtensions: Set<String> = ["mov", "mp4", "m4v", "avi", "mkv", "mts", "m2ts", "webm"]
+
+    private func listFolder(_ args: [String: Any]) throws -> ToolResult {
+        let url = URL(fileURLWithPath: try args.requireString("path"), isDirectory: true)
+        let depth = max(1, args.int("depth") ?? 1)
+        guard OrganizerMove.isInScope(url) else {
+            throw ToolError("Path is outside the organizer's scope (library roots or ~/Movies).")
+        }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw ToolError("Folder not found: \(url.path)")
+        }
+        return jsonResult(["path": url.path, "entries": folderEntries(at: url, depth: depth)])
+    }
+
+    private func folderEntries(at url: URL, depth: Int) -> [[String: Any]] {
+        let fm = FileManager.default
+        guard let children = try? fm.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+        let formatter = ISO8601DateFormatter()
+        return children.sorted { $0.lastPathComponent < $1.lastPathComponent }.map { child in
+            let values = try? child.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey])
+            let isFolder = values?.isDirectory ?? false
+            var dict: [String: Any] = [
+                "name": child.lastPathComponent,
+                "path": child.path,
+                "kind": isFolder ? "folder" : "file",
+            ]
+            if let modified = values?.contentModificationDate { dict["modified"] = formatter.string(from: modified) }
+            if isFolder {
+                if depth > 1 { dict["entries"] = folderEntries(at: child, depth: depth - 1) }
+            } else {
+                dict["sizeBytes"] = values?.fileSize ?? 0
+                let isVideo = Self.videoExtensions.contains(child.pathExtension.lowercased())
+                dict["isVideo"] = isVideo
+                if isVideo { dict["indexed"] = EmbeddingStore.hasIndex(for: child) }
+            }
+            return dict
+        }
+    }
+
+    private func createFolder(_ args: [String: Any]) throws -> ToolResult {
+        let url = URL(fileURLWithPath: try args.requireString("path"), isDirectory: true)
+        guard OrganizerMove.isInScope(url) else {
+            throw ToolError("Path is outside the organizer's scope (library roots or ~/Movies).")
+        }
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return jsonResult(["ok": true, "path": url.path])
+    }
+
+    private func moveFile(_ args: [String: Any]) throws -> ToolResult {
+        guard let moves = args["moves"] as? [[String: Any]], !moves.isEmpty else {
+            throw ToolError("moves is required and must be a non-empty array of {source, destination}.")
+        }
+        let dryRun = (args["dryRun"] as? Bool) ?? false
+        var results: [[String: Any]] = []
+        var moved = 0
+        for entry in moves {
+            guard let source = entry.string("source"), let destination = entry.string("destination") else {
+                results.append(["ok": false, "reason": "entry needs both source and destination"])
+                continue
+            }
+            let sourceURL = URL(fileURLWithPath: source)
+            let destinationURL = URL(fileURLWithPath: destination)
+            if let reason = OrganizerMove.validate(source: sourceURL, destination: destinationURL) {
+                results.append(["source": source, "destination": destination, "ok": false, "reason": reason])
+                continue
+            }
+            if dryRun {
+                results.append(["source": source, "destination": destination, "ok": true, "dryRun": true])
+                continue
+            }
+            do {
+                try OrganizerMove.move(source: sourceURL, destination: destinationURL)
+                moved += 1
+                results.append(["source": source, "destination": destination, "ok": true])
+            } catch let failure as OrganizerMove.Failure {
+                results.append(["source": source, "destination": destination, "ok": false, "reason": failure.reason])
+            } catch {
+                results.append(["source": source, "destination": destination, "ok": false, "reason": error.localizedDescription])
+            }
+        }
+        if moved > 0 { Task { await RootsRegistry.shared.rescan() } }
+        return jsonResult(["dryRun": dryRun, "moved": moved, "results": results])
+    }
+
+    private func renameFile(_ args: [String: Any]) throws -> ToolResult {
+        let path = try args.requireString("path")
+        let newName = try args.requireString("newName")
+        guard !newName.contains("/") else { throw ToolError("newName must be a filename, not a path.") }
+        let source = URL(fileURLWithPath: path)
+        let destination = source.deletingLastPathComponent().appendingPathComponent(newName)
+        if let reason = OrganizerMove.validate(source: source, destination: destination) {
+            throw ToolError(reason)
+        }
+        try OrganizerMove.move(source: source, destination: destination)
+        Task { await RootsRegistry.shared.rescan() }
+        return jsonResult(["ok": true, "path": destination.path])
     }
 
     // MARK: - Helpers

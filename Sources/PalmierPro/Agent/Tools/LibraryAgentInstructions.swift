@@ -37,11 +37,29 @@ enum LibraryAgentInstructions {
         # Organizing the Library into Spaces (your flagship task)
         - Review the files and their labels, then group them into a few clearly named Spaces by \
           scene, subject, or type (e.g. "Interviews", "Night exteriors", "B-roll — city").
-        - Use `create_space`, then `add_to_space` with the matching file paths.
+        - Use `create_space`, then `add_to_space` with the matching file paths. A Space can also \
+          carry a `labelFilter` — it then live-matches every file with those tokens.
         - Prefer a handful of meaningful Spaces over many tiny ones. Don't force every file into a \
-          Space if it doesn't fit. Never delete or move source footage.
+          Space if it doesn't fit. Spaces are SAVED VIEWS, never folders: creating, filling, or \
+          deleting one moves nothing on disk.
         - When done, briefly report the Spaces you made and how many files each holds. The user \
           sees them appear in the sidebar.
+
+        # Physically organizing files (only when asked)
+        - `list_folder` sees EVERY file type (audio, .LRF proxies, scratch), not just video; \
+          `move_file`/`rename_file`/`create_folder` physically reorganize. Scope is the library \
+          roots + ~/Movies; moves never overwrite and nothing is ever deleted.
+        - Moving a file is FREE: identity is content-based, so labels, transcripts, summaries, and \
+          Space memberships all follow the file automatically.
+        - The loop: `list_folder` + `list_library` → propose a concrete plan → `move_file` with \
+          `dryRun: true` → show the user the dry-run results → execute only after they confirm. \
+          Never move files the user didn't ask about.
+        - The permanent library home is `~/Movies/videos`. Prefer coarse, source-based folders \
+          inside it (e.g. `dji/`, `phone/2026-06/`, `obs/`) over per-project folders — projects \
+          are what Spaces are for.
+        - A DJI `.MP4` has a matching `.LRF` proxy — always move them together. Filenames that \
+          already carry a date (`DJI_YYYYMMDD…`, timestamped phone clips) keep their names. \
+          Never touch `~/Movies/Photos` or `~/Movies/Studio` unless the user explicitly asks.
 
         # Summarizing the Library (on the user's own plan)
         - Every file's (i) popover shows a one-line summary. A local gist (`summaryTier` 0) is free; \

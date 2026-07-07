@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// The home screen's tool host. Reads the cross-project Library (`RootsRegistry`, on-disk label
@@ -15,6 +16,7 @@ final class LibraryToolExecutor: AgentToolHost {
         }
         do {
             switch tool {
+            case .getContext:     return getContext()
             case .listLibrary:    return listLibrary()
             case .searchLibrary:  return searchLibrary(args)
             case .getTranscript:  return try getTranscript(args)
@@ -35,6 +37,65 @@ final class LibraryToolExecutor: AgentToolHost {
         } catch {
             return .error(error.localizedDescription)
         }
+    }
+
+    // MARK: - Session context
+
+    /// The "where is the user" snapshot that lets an external agent open the conversation
+    /// from the screen the user is actually on, instead of probing tools until one errors.
+    private func getContext() -> ToolResult {
+        var dict: [String: Any] = [:]
+        if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
+            dict["appVersion"] = version
+        }
+
+        let openProjects = NSDocumentController.shared.documents
+            .compactMap { ($0 as? VideoProject)?.fileURL?.deletingPathExtension().lastPathComponent }
+        if !openProjects.isEmpty { dict["openProjects"] = openProjects }
+
+        if let active = AppState.shared.activeProject {
+            dict["surface"] = "editor"
+            if let name = active.fileURL?.deletingPathExtension().lastPathComponent {
+                dict["activeProject"] = name
+            }
+        } else {
+            dict["surface"] = "home"
+            switch HomeState.shared.section {
+            case .projects:
+                dict["homeSection"] = "projects"
+            case .library:
+                dict["homeSection"] = "library"
+            case .space(let id):
+                dict["homeSection"] = "space"
+                if let space = SpaceRegistry.shared.space(id) {
+                    dict["spaceName"] = space.name
+                    dict["spaceId"] = id.uuidString
+                    dict["spaceItemCount"] = space.items.count
+                    if let filter = space.labelFilter, !filter.isEmpty { dict["spaceLabelFilter"] = filter }
+                    if let project = SpaceRegistry.shared.linkedProjectURL(for: id) {
+                        dict["spaceLinkedProject"] = project.deletingPathExtension().lastPathComponent
+                    }
+                }
+            }
+            switch LibrarySelection.shared.target {
+            case .file(let url): dict["inspectingFile"] = url.path
+            case .overview(let name, _): dict["inspectingOverview"] = name
+            case nil: break
+            }
+        }
+
+        let indexer = LibraryIndexer.shared
+        dict["library"] = [
+            "fileCount": RootsRegistry.shared.files.count,
+            "roots": RootsRegistry.shared.roots.map(\.label),
+            "indexing": [
+                "phase": indexer.phase.rawValue,
+                "isIndexing": indexer.isIndexing,
+                "done": indexer.done,
+                "total": indexer.total,
+            ],
+        ]
+        return jsonResult(dict)
     }
 
     // MARK: - Library reads

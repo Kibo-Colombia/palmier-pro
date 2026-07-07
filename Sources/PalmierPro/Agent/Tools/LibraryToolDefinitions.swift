@@ -4,6 +4,7 @@ import Foundation
 /// user-added roots, understood in place) and Spaces (saved, non-destructive groupings) — never on
 /// a project timeline. Whole files for V1; a Space is the home analog of the editor's folders.
 enum LibraryToolName: String, CaseIterable, Sendable {
+    case getContext = "get_context"
     case listLibrary = "list_library"
     case searchLibrary = "search_library"
     case getTranscript = "get_transcript"
@@ -22,6 +23,11 @@ enum LibraryToolName: String, CaseIterable, Sendable {
 
 enum LibraryToolDefinitions {
     static let all: [AnthropicToolSchema] = [
+        schema(
+            .getContext,
+            "Where the user is in Koma RIGHT NOW — call this first when joining a session. Returns surface ('editor' = a project is open and active, 'home' = the home screen), and per surface: activeProject + openProjects (editor), or homeSection ('projects'|'library'|'space') with the Space's name/id/count/linkedProject and any file open in the inspector (home). Always includes library vitals (fileCount, indexing phase/progress) and the app version. Use it to ground suggestions in what the user is actually looking at.",
+            obj()
+        ),
         schema(
             .listLibrary,
             "Lists the Library and what's understood about it. Each file carries: on-device visual label tokens (e.g. 'set:night'); seen (true once visually indexed); said ('speech' = transcribed spoken words, 'silent' = no audio/no speech, 'pending' = not transcribed yet); plus spoken (a transcript preview) and lang (auto-detected per clip, e.g. 'es' or 'en') when there is speech; plus summary (the caption shown in the file's (i) popover) and summaryTier (0 = local gist, 1 = AI-written) when one exists. Top-level 'understanding' counts seen/labeled/heardSpeech/silent/saidPending across the whole Library, and 'indexing' reports the live pass (phase 'seeing' = visual, 'hearing' = transcribing). Call this first. While indexing.isIndexing is true, seen/said are still filling in.",

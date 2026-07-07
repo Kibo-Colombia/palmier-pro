@@ -2,6 +2,24 @@ import SwiftUI
 
 enum HomeSection: Hashable { case projects, library, space(UUID) }
 
+/// The home screen's current section, shared so the MCP `get_context` tool can tell an
+/// external agent what the user is looking at. Persists across launches (the Library is
+/// the default home; Projects is remembered if that's where the user last was).
+@MainActor
+@Observable
+final class HomeState {
+    static let shared = HomeState()
+
+    var section: HomeSection = {
+        UserDefaults.standard.string(forKey: "home.lastSection") == "projects" ? .projects : .library
+    }() {
+        didSet {
+            // Spaces count as "library side" — landing back on the Library keeps them one click away.
+            UserDefaults.standard.set(section == .projects ? "projects" : "library", forKey: "home.lastSection")
+        }
+    }
+}
+
 struct HomeView: View {
     private let columns = [
         GridItem(.adaptive(minimum: 140, maximum: 170), spacing: AppTheme.Spacing.xl)
@@ -10,17 +28,15 @@ struct HomeView: View {
     @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
     @AppStorage("homeChatVisible") private var chatVisible = false
     /// The Library is the home (ORGANIZER doctrine: the understood library + the workspaces
-    /// carved from it). Projects is remembered if that's where the user last was.
-    @State private var section: HomeSection = Self.initialSection()
+    /// carved from it). Shared state so MCP `get_context` can report the current section.
+    @State private var home = HomeState.shared
     @State private var librarySelection = LibrarySelection.shared
 
-    private static func initialSection() -> HomeSection {
-        UserDefaults.standard.string(forKey: "home.lastSection") == "projects" ? .projects : .library
-    }
+    private var section: HomeSection { home.section }
 
     var body: some View {
         HStack(spacing: 0) {
-            HomeSidebar(section: $section, chatVisible: $chatVisible)
+            HomeSidebar(section: $home.section, chatVisible: $chatVisible)
                 .frame(width: 220)
 
             content
@@ -45,11 +61,7 @@ struct HomeView: View {
         .focusEffectDisabled()
         .animation(.easeOut(duration: AppTheme.Anim.hover), value: chatVisible)
         .animation(.easeOut(duration: AppTheme.Anim.hover), value: librarySelection.target)
-        .onChange(of: section) { _, newSection in
-            librarySelection.clear()
-            // Spaces count as "library side" — landing back on the Library keeps them one click away.
-            UserDefaults.standard.set(newSection == .projects ? "projects" : "library", forKey: "home.lastSection")
-        }
+        .onChange(of: section) { _, _ in librarySelection.clear() }
         .task { await VisualModelLoader.shared.prepare() }
         .overlay {
             if !hasSeenWelcome {
@@ -63,7 +75,7 @@ struct HomeView: View {
         switch section {
         case .projects: projectsContent
         case .library: LibraryView()
-        case .space(let id): SpaceDetailView(spaceID: id, onDeleted: { section = .library })
+        case .space(let id): SpaceDetailView(spaceID: id, onDeleted: { home.section = .library })
         }
     }
 

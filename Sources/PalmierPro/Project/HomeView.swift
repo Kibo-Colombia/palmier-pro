@@ -9,8 +9,14 @@ struct HomeView: View {
 
     @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
     @AppStorage("homeChatVisible") private var chatVisible = false
-    @State private var section: HomeSection = .projects
+    /// The Library is the home (ORGANIZER doctrine: the understood library + the workspaces
+    /// carved from it). Projects is remembered if that's where the user last was.
+    @State private var section: HomeSection = Self.initialSection()
     @State private var librarySelection = LibrarySelection.shared
+
+    private static func initialSection() -> HomeSection {
+        UserDefaults.standard.string(forKey: "home.lastSection") == "projects" ? .projects : .library
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -39,7 +45,11 @@ struct HomeView: View {
         .focusEffectDisabled()
         .animation(.easeOut(duration: AppTheme.Anim.hover), value: chatVisible)
         .animation(.easeOut(duration: AppTheme.Anim.hover), value: librarySelection.target)
-        .onChange(of: section) { _, _ in librarySelection.clear() }
+        .onChange(of: section) { _, newSection in
+            librarySelection.clear()
+            // Spaces count as "library side" — landing back on the Library keeps them one click away.
+            UserDefaults.standard.set(newSection == .projects ? "projects" : "library", forKey: "home.lastSection")
+        }
         .task { await VisualModelLoader.shared.prepare() }
         .overlay {
             if !hasSeenWelcome {
@@ -211,6 +221,7 @@ private struct HomeSidebar: View {
                     isSelected: section == .library,
                     action: { section = .library }
                 )
+                LibraryPulseLine()
 
                 spacesSection
 
@@ -275,6 +286,38 @@ private struct HomeSidebar: View {
             )
         }
         NewSpaceDropRow(section: $section)
+    }
+}
+
+/// The Library's heartbeat, ambient in the sidebar: the always-on indexer works with no
+/// tab open, so this one line is how the user *feels* it — "understanding 3/12" while new
+/// footage is being learned, a calm corpus count when everything is known.
+private struct LibraryPulseLine: View {
+    @State private var indexer = LibraryIndexer.shared
+    @State private var roots = RootsRegistry.shared
+
+    var body: some View {
+        Group {
+            if indexer.isIndexing {
+                HStack(spacing: AppTheme.Spacing.xs) {
+                    ProgressView().controlSize(.mini)
+                    Text("\(indexer.phaseLabel.lowercased()) \(indexer.done)/\(indexer.total)")
+                        .monospacedDigit()
+                }
+                .foregroundStyle(AppTheme.Accent.primary)
+            } else if indexer.issue != nil {
+                Label("some clips not understood", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(Color.orange.opacity(0.8))
+            } else if !roots.files.isEmpty {
+                Text("\(roots.files.count) clips understood")
+                    .foregroundStyle(AppTheme.Text.mutedColor)
+            }
+        }
+        .font(.system(size: AppTheme.FontSize.xxs))
+        .lineLimit(1)
+        .padding(.leading, AppTheme.Spacing.smMd + AppTheme.Spacing.lgXl + AppTheme.Spacing.smMd)
+        .padding(.bottom, AppTheme.Spacing.xxs)
+        .animation(.easeOut(duration: AppTheme.Anim.hover), value: indexer.isIndexing)
     }
 }
 

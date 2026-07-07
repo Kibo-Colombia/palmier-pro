@@ -7,6 +7,12 @@ import SwiftUI
 struct LibraryView: View {
     @State private var roots = RootsRegistry.shared
     @State private var indexer = LibraryIndexer.shared
+    /// Newest-first is the default: the freshest footage is what you're most likely here for.
+    @AppStorage("library.sortNewestFirst") private var sortNewestFirst = true
+    /// Files bucketed per root (nil label when only one root), sorted per the toggle.
+    @State private var groups: [LibraryFileGroup] = []
+    @State private var search = LibrarySearchModel()
+    @FocusState private var searchFocused: Bool
 
     private let columns = [GridItem(.adaptive(minimum: 160, maximum: 200), spacing: AppTheme.Spacing.lg)]
 
@@ -15,6 +21,8 @@ struct LibraryView: View {
             header
             if roots.roots.isEmpty {
                 emptyState
+            } else if search.isActive {
+                searchResults
             } else {
                 rootsBar
                 grid
@@ -22,6 +30,17 @@ struct LibraryView: View {
         }
         .task(id: roots.files) {
             indexer.ensureIndexed(roots.files)
+        }
+        .task(id: "\(roots.files.hashValue)|\(sortNewestFirst)") {
+            groups = await LibraryFileGroup.make(
+                files: roots.files, roots: roots.roots, newestFirst: sortNewestFirst
+            )
+        }
+        .background {
+            // ⌘F focuses search from anywhere in the Library.
+            Button("") { searchFocused = true }
+                .keyboardShortcut("f", modifiers: .command)
+                .hidden()
         }
     }
 
@@ -57,6 +76,18 @@ struct LibraryView: View {
             }
             Spacer()
             if !roots.roots.isEmpty {
+                searchField
+                Menu {
+                    Picker("Sort", selection: $sortNewestFirst) {
+                        Text("Newest first").tag(true)
+                        Text("By name").tag(false)
+                    }
+                } label: {
+                    Label("Sort", systemImage: "arrow.up.arrow.down")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Order the library grid")
                 Button { LibrarySelection.shared.showOverview(name: "Library", files: roots.files) } label: {
                     Label("Overview", systemImage: "square.grid.2x2")
                 }
@@ -69,6 +100,108 @@ struct LibraryView: View {
         .padding(.horizontal, AppTheme.Spacing.xlXxl)
         .padding(.top, AppTheme.Spacing.lg)
         .padding(.bottom, AppTheme.Spacing.md)
+    }
+
+    /// One field, three layers: what the frames show, what was said, what files are named.
+    private var searchField: some View {
+        HStack(spacing: AppTheme.Spacing.xs) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: AppTheme.FontSize.xs))
+                .foregroundStyle(AppTheme.Text.tertiaryColor)
+            TextField("Search moments, words, files…", text: $search.query)
+                .textFieldStyle(.plain)
+                .font(.system(size: AppTheme.FontSize.sm))
+                .focused($searchFocused)
+                .onChange(of: search.query) { _, _ in search.scheduleSearch() }
+                .onExitCommand { search.clear(); searchFocused = false }
+            if search.isActive {
+                if search.isSearching {
+                    ProgressView().controlSize(.mini)
+                }
+                Button {
+                    search.clear()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: AppTheme.FontSize.xs))
+                        .foregroundStyle(AppTheme.Text.tertiaryColor)
+                }
+                .buttonStyle(.plain)
+                .help("Clear search (Esc)")
+            }
+        }
+        .padding(.horizontal, AppTheme.Spacing.sm)
+        .padding(.vertical, AppTheme.Spacing.xs)
+        .frame(width: 260)
+        .background(Color.white.opacity(AppTheme.Opacity.subtle), in: .capsule)
+        .overlay(
+            Capsule().strokeBorder(
+                searchFocused ? AppTheme.Accent.primary.opacity(AppTheme.Opacity.medium) : Color.white.opacity(AppTheme.Opacity.hint),
+                lineWidth: AppTheme.BorderWidth.hairline
+            )
+        )
+    }
+
+    // MARK: - Search results
+
+    private var searchResults: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+                if !search.moments.isEmpty {
+                    resultHeader("Moments", icon: "sparkle.magnifyingglass", count: search.moments.count)
+                    LazyVGrid(columns: columns, spacing: AppTheme.Spacing.lg) {
+                        ForEach(search.moments) { MomentResultCard(hit: $0) }
+                    }
+                } else if search.visualUnavailable, !search.isSearching {
+                    Label("Visual model is still loading — moment search will join in a moment.", systemImage: "sparkle.magnifyingglass")
+                        .font(.system(size: AppTheme.FontSize.xs))
+                        .foregroundStyle(AppTheme.Text.mutedColor)
+                }
+                if !search.spoken.isEmpty {
+                    resultHeader("Spoken", icon: "waveform", count: search.spoken.count)
+                    VStack(spacing: AppTheme.Spacing.sm) {
+                        ForEach(search.spoken) { SpokenResultRow(hit: $0) }
+                    }
+                }
+                if !search.files.isEmpty {
+                    resultHeader("Files", icon: "doc", count: search.files.count)
+                    LazyVGrid(columns: columns, spacing: AppTheme.Spacing.lg) {
+                        ForEach(search.files, id: \.self) { LibraryVideoCard(url: $0) }
+                    }
+                }
+                if search.isEmpty {
+                    VStack(spacing: AppTheme.Spacing.sm) {
+                        if search.isSearching {
+                            ProgressView().controlSize(.small)
+                            Text("Searching what your footage shows and says…")
+                        } else {
+                            Text("No matches for “\(search.query.trimmingCharacters(in: .whitespacesAndNewlines))”")
+                        }
+                    }
+                    .font(.system(size: AppTheme.FontSize.sm))
+                    .foregroundStyle(AppTheme.Text.tertiaryColor)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, AppTheme.Spacing.xxl)
+                }
+            }
+            .padding(.horizontal, AppTheme.Spacing.xlXxl)
+            .padding(.bottom, AppTheme.Spacing.xlXxl)
+        }
+        .scrollEdgeEffectStyle(.soft, for: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func resultHeader(_ title: String, icon: String, count: Int) -> some View {
+        HStack(spacing: AppTheme.Spacing.xs) {
+            Image(systemName: icon)
+                .font(.system(size: AppTheme.FontSize.xs))
+            Text(title)
+                .font(.system(size: AppTheme.FontSize.sm, weight: .semibold))
+            Text("\(count)")
+                .font(.system(size: AppTheme.FontSize.xs).monospacedDigit())
+                .foregroundStyle(AppTheme.Text.tertiaryColor)
+        }
+        .foregroundStyle(AppTheme.Text.secondaryColor)
+        .padding(.top, AppTheme.Spacing.sm)
     }
 
     private var rootsBar: some View {
@@ -90,6 +223,18 @@ struct LibraryView: View {
                                 .font(.system(size: AppTheme.FontSize.xs, weight: .semibold))
                                 .foregroundStyle(Color.orange)
                                 .help("This folder can't be found. Point \(root.label) at its new location — Spaces keep working as long as the files inside kept their relative paths.")
+                        } else {
+                            Button {
+                                if let url = Bookmarks.resolve(root.bookmark)?.url {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            } label: {
+                                Image(systemName: "arrow.up.forward.square")
+                                    .font(.system(size: AppTheme.FontSize.xxs))
+                                    .foregroundStyle(AppTheme.Text.tertiaryColor)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Open \(root.label) in Finder — drop footage there and Koma understands it automatically")
                         }
                         Button { RootsRegistry.shared.remove(root.id) } label: {
                             Image(systemName: "xmark")
@@ -111,9 +256,26 @@ struct LibraryView: View {
 
     private var grid: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: AppTheme.Spacing.lg) {
-                ForEach(roots.files, id: \.self) { url in
-                    LibraryVideoCard(url: url)
+            LazyVStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+                ForEach(groups) { group in
+                    if let label = group.label {
+                        HStack(spacing: AppTheme.Spacing.xs) {
+                            Image(systemName: "folder")
+                                .font(.system(size: AppTheme.FontSize.xs))
+                            Text(label)
+                                .font(.system(size: AppTheme.FontSize.sm, weight: .semibold))
+                            Text("\(group.files.count)")
+                                .font(.system(size: AppTheme.FontSize.xs).monospacedDigit())
+                                .foregroundStyle(AppTheme.Text.tertiaryColor)
+                        }
+                        .foregroundStyle(AppTheme.Text.secondaryColor)
+                        .padding(.top, AppTheme.Spacing.sm)
+                    }
+                    LazyVGrid(columns: columns, spacing: AppTheme.Spacing.lg) {
+                        ForEach(group.files, id: \.self) { url in
+                            LibraryVideoCard(url: url)
+                        }
+                    }
                 }
             }
             .padding(.horizontal, AppTheme.Spacing.xlXxl)
@@ -170,6 +332,52 @@ struct LibraryView: View {
     }
 }
 
+/// Files bucketed per root for the Library grid. Label is nil when there's a single root
+/// (no point captioning the obvious); ordering follows the roots bar.
+struct LibraryFileGroup: Identifiable, Equatable {
+    let label: String?
+    let files: [URL]
+    var id: String { label ?? "·" }
+
+    /// Off-main: stats every file once for the newest-first order.
+    static func make(files: [URL], roots: [Root], newestFirst: Bool) async -> [LibraryFileGroup] {
+        await Task.detached(priority: .userInitiated) {
+            let bases: [(label: String, prefix: String)] = roots.compactMap { root in
+                guard let resolved = Bookmarks.resolve(root.bookmark) else { return nil }
+                let base = resolved.url.standardizedFileURL.path
+                return (root.label, base.hasSuffix("/") ? base : base + "/")
+            }
+            func sorted(_ urls: [URL]) -> [URL] {
+                guard newestFirst else { return urls.sorted { $0.lastPathComponent < $1.lastPathComponent } }
+                let stamped = urls.map { url -> (URL, Date) in
+                    let date = (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) ?? .distantPast
+                    return (url, date)
+                }
+                return stamped.sorted { $0.1 > $1.1 }.map(\.0)
+            }
+            var buckets: [String: [URL]] = [:]
+            var stray: [URL] = []
+            for file in files {
+                let path = file.standardizedFileURL.path
+                if let base = bases.first(where: { path.hasPrefix($0.prefix) }) {
+                    buckets[base.label, default: []].append(file)
+                } else {
+                    stray.append(file)
+                }
+            }
+            if bases.count <= 1 {
+                return [LibraryFileGroup(label: nil, files: sorted(files))]
+            }
+            var groups = bases.compactMap { base -> LibraryFileGroup? in
+                guard let bucket = buckets[base.label], !bucket.isEmpty else { return nil }
+                return LibraryFileGroup(label: base.label, files: sorted(bucket))
+            }
+            if !stray.isEmpty { groups.append(LibraryFileGroup(label: "Other", files: sorted(stray))) }
+            return groups
+        }.value
+    }
+}
+
 /// A library card: poster at rest, hover-scrub key moments on hover, label chips behind the (i).
 /// Hover state surfaces a subtle border + scale nudge so the card reads as draggable before
 /// the gesture starts. The drag preview matches the MediaTab house style (accent border + shadow).
@@ -209,6 +417,7 @@ private struct LibraryVideoCard: View {
         .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isHovered)
         .onHover { isHovered = $0 }
         .onTapGesture { selection.selectFile(url) }
+        .contextMenu { LibraryCardMenu(url: url) }
         .task(id: url.path) {
             poster = await Self.makePoster(url: url)
         }
@@ -249,5 +458,176 @@ private struct LibraryVideoCard: View {
         generator.requestedTimeToleranceAfter = CMTime(seconds: 1, preferredTimescale: 600)
         guard let cg = try? await generator.image(at: CMTime(seconds: 0, preferredTimescale: 600)).image else { return nil }
         return NSImage(cgImage: cg, size: .zero)
+    }
+}
+
+/// Right-click actions for any library file card — the macOS-native path to the same
+/// actions the inspector offers, without having to select first.
+struct LibraryCardMenu: View {
+    let url: URL
+    /// Optional shot range (search moment results) so "Add to Space" keeps the moment precise.
+    var shotStart: Double?
+    var shotEnd: Double?
+
+    var body: some View {
+        Button {
+            LibrarySelection.shared.selectFile(url)
+        } label: {
+            Label("Details", systemImage: "info.circle")
+        }
+        Button {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } label: {
+            Label("Reveal in Finder", systemImage: "folder")
+        }
+        Divider()
+        Menu("Add to Space") {
+            ForEach(SpaceRegistry.shared.spaces) { space in
+                Button(space.name) { add(to: space.id) }
+            }
+            if !SpaceRegistry.shared.spaces.isEmpty { Divider() }
+            Button("New Space…") {
+                let space = SpaceRegistry.shared.create(name: url.deletingPathExtension().lastPathComponent)
+                add(to: space.id)
+            }
+        }
+    }
+
+    private func add(to spaceID: UUID) {
+        guard let address = RootsRegistry.shared.address(for: url, shotStart: shotStart, shotEnd: shotEnd) else { return }
+        SpaceRegistry.shared.add([address], to: spaceID)
+    }
+}
+
+/// A semantic search hit: the matching key frame with its shot range. Drags as a
+/// *moment* (shot-range address), so a search result lands in a Space pre-trimmed —
+/// search "sunset", drag the exact shot.
+private struct MomentResultCard: View {
+    let hit: LibrarySearchModel.MomentHit
+    @State private var isHovered = false
+
+    private let cardRadius = AppTheme.Radius.sm
+    private var range: String {
+        String(format: "%@–%@", Timecode.short(hit.shotStart), Timecode.short(hit.shotEnd))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.xxs) {
+            LibraryFrameThumb(url: hit.url, time: hit.time)
+                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
+                        .strokeBorder(
+                            Color.white.opacity(isHovered ? AppTheme.Opacity.muted : AppTheme.Opacity.hint),
+                            lineWidth: AppTheme.BorderWidth.hairline
+                        )
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    Text(range)
+                        .font(.system(size: AppTheme.FontSize.xxs, weight: .medium).monospacedDigit())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, AppTheme.Spacing.xs)
+                        .padding(.vertical, AppTheme.Spacing.xxs)
+                        .background(.black.opacity(AppTheme.Opacity.prominent), in: .capsule)
+                        .padding(AppTheme.Spacing.xs)
+                }
+            Text(hit.url.deletingPathExtension().lastPathComponent)
+                .font(.system(size: AppTheme.FontSize.xs))
+                .foregroundStyle(AppTheme.Text.secondaryColor)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .scaleEffect(isHovered ? 1.02 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isHovered)
+        .onHover { isHovered = $0 }
+        .onTapGesture { LibrarySelection.shared.selectFile(hit.url) }
+        .contextMenu { LibraryCardMenu(url: hit.url, shotStart: hit.shotStart, shotEnd: hit.shotEnd) }
+        .draggable(
+            RootsRegistry.shared.address(for: hit.url, shotStart: hit.shotStart, shotEnd: hit.shotEnd)?.dragString ?? ""
+        ) {
+            LibraryFrameThumb(url: hit.url, time: hit.time)
+                .frame(width: 96, height: 54)
+                .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
+        }
+    }
+}
+
+/// A spoken-word hit: the segment's frame, the quote, and where it was said. Drags as a
+/// moment covering the spoken segment.
+private struct SpokenResultRow: View {
+    let hit: LibrarySearchModel.SpokenHit
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: AppTheme.Spacing.sm) {
+            LibraryFrameThumb(url: hit.url, time: hit.start)
+                .frame(width: 128, height: 72)
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.sm, style: .continuous))
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.xxs) {
+                Text("\u{201C}\(hit.text)\u{201D}")
+                    .font(.system(size: AppTheme.FontSize.sm))
+                    .foregroundStyle(AppTheme.Text.primaryColor)
+                    .lineLimit(3)
+                Text("\(hit.url.deletingPathExtension().lastPathComponent) · \(Timecode.short(hit.start))")
+                    .font(.system(size: AppTheme.FontSize.xxs))
+                    .foregroundStyle(AppTheme.Text.tertiaryColor)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(AppTheme.Spacing.xs)
+        .background(
+            Color.white.opacity(isHovered ? AppTheme.Opacity.subtle : 0),
+            in: RoundedRectangle(cornerRadius: AppTheme.Radius.sm, style: .continuous)
+        )
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .onTapGesture { LibrarySelection.shared.selectFile(hit.url) }
+        .contextMenu { LibraryCardMenu(url: hit.url, shotStart: hit.start, shotEnd: hit.end) }
+        .draggable(
+            RootsRegistry.shared.address(for: hit.url, shotStart: hit.start, shotEnd: hit.end)?.dragString ?? ""
+        ) {
+            LibraryFrameThumb(url: hit.url, time: hit.start)
+                .frame(width: 96, height: 54)
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.sm, style: .continuous))
+        }
+    }
+}
+
+/// One async frame at a source time — the search results' thumbnail atom.
+private struct LibraryFrameThumb: View {
+    let url: URL
+    let time: Double
+    @State private var image: CGImage?
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(Color.black)
+            if let image {
+                Image(decorative: image, scale: 1)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+            }
+        }
+        .task(id: "\(url.path)@\(time)") {
+            let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 320, height: 320)
+            let tolerance = CMTime(seconds: 1, preferredTimescale: 600)
+            generator.requestedTimeToleranceBefore = tolerance
+            generator.requestedTimeToleranceAfter = tolerance
+            image = try? await generator.image(at: CMTime(seconds: time, preferredTimescale: 600)).image
+        }
+    }
+}
+
+/// Shared short timecode ("m:ss" / "h:mm:ss") for search results.
+private enum Timecode {
+    static func short(_ seconds: Double) -> String {
+        let t = Int(seconds.rounded())
+        return t >= 3600
+            ? String(format: "%d:%02d:%02d", t / 3600, t % 3600 / 60, t % 60)
+            : String(format: "%d:%02d", t / 60, t % 60)
     }
 }

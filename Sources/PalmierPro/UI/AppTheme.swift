@@ -240,6 +240,10 @@ enum AppTheme {
         static let projectDefault = NSSize(width: 1600, height: 1000)
         static let projectMin = NSSize(width: 960, height: 600)
         static let projectTitlebarTrailingWidth: CGFloat = 280
+        /// Vertical clearance for the traffic-light buttons on `.fullSizeContentView`
+        /// windows with a hidden title bar — content laid out inside this strip gets
+        /// overlapped by close/minimize/zoom.
+        static let titlebarClearance: CGFloat = 36
     }
 
     enum Caption {

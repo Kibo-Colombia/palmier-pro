@@ -197,6 +197,10 @@ private struct HomeSidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Keep the first rows clear of the traffic lights — the home window's title bar
+            // is hidden + full-size, so without this the buttons overlap "Projects".
+            Spacer().frame(height: AppTheme.Window.titlebarClearance)
+
             if account.isSignedIn {
                 IdentityStrip()
             }

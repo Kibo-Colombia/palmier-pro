@@ -329,21 +329,9 @@ final class EditorSplitViewController: PaddedDividerSplitViewController {
     }
 
     private func makeHosting<V: View>(_ content: V, panel: EditorViewModel.FocusedPanel) -> NSHostingController<some View> {
-        let inset = Layout.panelGap / 2
-        let panelShell = RoundedRectangle(cornerRadius: AppTheme.Radius.sm, style: .continuous)
         let hc = NSHostingController(
-            rootView: content
+            rootView: PanelShell(panel: panel, content: content)
                 .environment(editor)
-                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
-                .background(AppTheme.Background.surfaceColor)
-                .clipShape(panelShell)
-                .padding(inset)
-                .background(AppTheme.Background.baseColor)
-                .overlay {
-                    PanelFocusRing(editor: editor, panel: panel)
-                        .padding(inset)
-                        .allowsHitTesting(false)
-                }
         )
         hc.view.setAccessibilityIdentifier(panel.accessibilityID)
         return hc
@@ -376,6 +364,36 @@ final class EditorSplitViewController: PaddedDividerSplitViewController {
         isPositioning = true
         work()
         isPositioning = false
+    }
+}
+
+// MARK: - Panel chrome
+
+/// Standard panel dressing (inset, rounded clip, focus ring). The preview panel
+/// drops all of it while fullscreen preview is active so the video runs
+/// edge-to-edge.
+private struct PanelShell<Content: View>: View {
+    @Environment(EditorViewModel.self) private var editor
+    let panel: EditorViewModel.FocusedPanel
+    let content: Content
+
+    private var isBare: Bool { panel == .preview && editor.isPreviewFullscreen }
+
+    var body: some View {
+        let inset = isBare ? 0 : Layout.panelGap / 2
+        content
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+            .background(AppTheme.Background.surfaceColor)
+            .clipShape(RoundedRectangle(cornerRadius: isBare ? 0 : AppTheme.Radius.sm, style: .continuous))
+            .padding(inset)
+            .background(AppTheme.Background.baseColor)
+            .overlay {
+                if !isBare {
+                    PanelFocusRing(editor: editor, panel: panel)
+                        .padding(inset)
+                        .allowsHitTesting(false)
+                }
+            }
     }
 }
 

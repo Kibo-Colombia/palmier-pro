@@ -29,6 +29,12 @@ extension EditorViewModel {
         }
     }
 
+    /// Fullscreen preview needs something to show — an empty timeline (or a
+    /// still-image tab, which has no transport) stays in the workbench.
+    var canFullscreenPreview: Bool {
+        activePreviewTab.clipType != .image && activePreviewDurationFrames > 0
+    }
+
     func selectMediaAsset(_ asset: MediaAsset, atSourceFrame frame: Int = 0) {
         openPreviewTab(for: asset, atSourceFrame: frame)
         syncSelectionToActiveTab()

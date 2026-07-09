@@ -4,12 +4,15 @@ import AppKit
 /// Forwards actions to the EditorViewModel owned by VideoProject.
 final class EditorWindowController: NSWindowController {
     let editorViewModel: EditorViewModel
+    private(set) var fullscreenPreview: FullscreenPreviewController
     private nonisolated(unsafe) var keyMonitor: Any?
     private nonisolated(unsafe) var mouseMonitor: Any?
 
     init(editorViewModel: EditorViewModel, window: NSWindow) {
         self.editorViewModel = editorViewModel
+        self.fullscreenPreview = FullscreenPreviewController(editor: editorViewModel, window: window)
         super.init(window: window)
+        window.delegate = self // fullscreen transition tracking — see FullscreenPreviewController.swift
     }
 
     @available(*, unavailable)
@@ -145,6 +148,10 @@ final class EditorWindowController: NSWindowController {
             return false
 
         case 53: // Escape
+            if editorViewModel.isPreviewFullscreen {
+                fullscreenPreview.exit()
+                return true
+            }
             if editorViewModel.pendingSwapClipId != nil {
                 editorViewModel.cancelMediaSwap()
                 return true
@@ -263,12 +270,27 @@ extension EditorWindowController: EditorActions {
     @objc func toggleInspectorPanel(_ sender: Any?) { editorViewModel.inspectorPanelVisible.toggle() }
     @objc func toggleAgentPanel(_ sender: Any?) { editorViewModel.agentPanelVisible.toggle() }
     @objc func toggleMaximizePanel(_ sender: Any?) { toggleMaximizePanelAction() }
-    @objc func setLayoutDefault(_ sender: Any?) { editorViewModel.layoutPreset = .default }
-    @objc func setLayoutMedia(_ sender: Any?) { editorViewModel.layoutPreset = .media }
-    @objc func setLayoutVertical(_ sender: Any?) { editorViewModel.layoutPreset = .vertical }
+
+    @objc func toggleFullscreenPreview(_ sender: Any?) {
+        if editorViewModel.isPreviewFullscreen {
+            fullscreenPreview.exit()
+        } else if editorViewModel.canFullscreenPreview {
+            fullscreenPreview.enter()
+        }
+    }
+
+    // Layout rebuilds clear `maximizedPanel` — leave fullscreen preview first
+    // so its saved panel state isn't swept away underneath it.
+    @objc func setLayoutDefault(_ sender: Any?) { fullscreenPreview.exit(); editorViewModel.layoutPreset = .default }
+    @objc func setLayoutMedia(_ sender: Any?) { fullscreenPreview.exit(); editorViewModel.layoutPreset = .media }
+    @objc func setLayoutVertical(_ sender: Any?) { fullscreenPreview.exit(); editorViewModel.layoutPreset = .vertical }
 
     private func toggleMaximizePanelAction() {
-        if editorViewModel.maximizedPanel != nil {
+        if editorViewModel.isPreviewFullscreen {
+            // Fullscreen preview already owns the maximize state — back out of
+            // the whole mode instead of toggling underneath it.
+            fullscreenPreview.exit()
+        } else if editorViewModel.maximizedPanel != nil {
             editorViewModel.maximizedPanel = nil
         } else if let panel = editorViewModel.focusedPanel {
             editorViewModel.maximizedPanel = panel
@@ -289,6 +311,9 @@ extension EditorWindowController: EditorActions {
         case #selector(toggleMaximizePanel(_:)):
             menuItem.state = editorViewModel.maximizedPanel != nil ? .on : .off
             return editorViewModel.maximizedPanel != nil || editorViewModel.focusedPanel != nil
+        case #selector(toggleFullscreenPreview(_:)):
+            menuItem.state = editorViewModel.isPreviewFullscreen ? .on : .off
+            return editorViewModel.isPreviewFullscreen || editorViewModel.canFullscreenPreview
         case #selector(setLayoutDefault(_:)):
             menuItem.state = editorViewModel.layoutPreset == .default ? .on : .off
             return true

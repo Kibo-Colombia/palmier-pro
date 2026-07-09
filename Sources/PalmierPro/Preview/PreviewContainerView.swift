@@ -8,11 +8,15 @@ struct PreviewContainerView: View {
 
     @State private var hoveredTabId: String?
 
+    private var isFullscreen: Bool { editor.isPreviewFullscreen }
+
     var body: some View {
         VStack(spacing: 0) {
-            tabBar
-                .padding(.horizontal, AppTheme.Spacing.sm)
-                .panelHeaderBar()
+            if !isFullscreen {
+                tabBar
+                    .padding(.horizontal, AppTheme.Spacing.sm)
+                    .panelHeaderBar()
+            }
 
             GeometryReader { geo in
                 let aspect = generatingAspect ?? CGFloat(editor.timeline.width) / CGFloat(editor.timeline.height)
@@ -33,7 +37,9 @@ struct PreviewContainerView: View {
                     if activeMediaMissing {
                         missingPreview
                     }
-                    if editor.cropEditingActive {
+                    if isFullscreen {
+                        // View-only mode — no edit overlays over the pixels.
+                    } else if editor.cropEditingActive {
                         CropOverlayView()
                     } else if editor.maskEditingActive {
                         MaskOverlayView()
@@ -50,14 +56,104 @@ struct PreviewContainerView: View {
                 .offset(x: editor.canvasOffset.width, y: editor.canvasOffset.height)
             }
             .clipped()
-            if !isImage {
+            if isFullscreen {
+                EmptyView()
+            } else if !isImage {
                 scrubBar
                 transportBar
             } else {
                 imageSettingsBar
             }
         }
-        .background(AppTheme.Background.surfaceColor)
+        .background(isFullscreen ? Color.black : AppTheme.Background.surfaceColor)
+        .overlay(alignment: .bottom) {
+            if isFullscreen && !isImage {
+                fullscreenTransportBar
+            }
+        }
+        .onContinuousHover(coordinateSpace: .local) { phase in
+            guard isFullscreen else { return }
+            if case .active = phase { pokeFullscreenChrome() }
+        }
+        .onChange(of: isFullscreen) { _, active in
+            fullscreenChromeTask?.cancel()
+            fullscreenChromeTask = nil
+            fullscreenChromeVisible = true
+            if active { scheduleFullscreenChromeHide() }
+        }
+    }
+
+    // MARK: - Fullscreen transport (auto-hiding)
+
+    @State private var fullscreenChromeVisible = true
+    @State private var fullscreenChromeTask: Task<Void, Never>?
+    @State private var isHoveringFullscreenChrome = false
+
+    private var fullscreenTransportBar: some View {
+        VStack(spacing: AppTheme.Spacing.sm) {
+            scrubBar
+            HStack(spacing: AppTheme.Spacing.md) {
+                transportButton(editor.isPlaying ? "pause.fill" : "play.fill") {
+                    if isTimeline {
+                        editor.togglePlayback()
+                    } else {
+                        editor.toggleSourcePlayback()
+                    }
+                }
+                PreviewTimecodeText(
+                    isTimeline: isTimeline,
+                    fps: editor.timeline.fps,
+                    durationTimecode: formatTimecode(frame: durationFrames, fps: editor.timeline.fps)
+                )
+                Spacer()
+                Text("Esc to exit")
+                    .font(.system(size: AppTheme.FontSize.xs))
+                    .foregroundStyle(AppTheme.Text.tertiaryColor)
+                transportButton("arrow.down.right.and.arrow.up.left") {
+                    NSApp.sendAction(#selector(EditorActions.toggleFullscreenPreview(_:)), to: nil, from: nil)
+                }
+            }
+        }
+        .padding(.horizontal, AppTheme.Spacing.lg)
+        .padding(.vertical, AppTheme.Spacing.md)
+        .frame(maxWidth: 560)
+        .background(.black.opacity(AppTheme.Opacity.strong), in: RoundedRectangle(cornerRadius: AppTheme.Radius.md, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.Radius.md, style: .continuous)
+                .strokeBorder(.white.opacity(AppTheme.Opacity.soft), lineWidth: AppTheme.BorderWidth.hairline)
+        )
+        .padding(.bottom, AppTheme.Spacing.xl)
+        .opacity(fullscreenChromeVisible ? 1 : 0)
+        .allowsHitTesting(fullscreenChromeVisible)
+        .animation(.easeOut(duration: AppTheme.Anim.transition), value: fullscreenChromeVisible)
+        .onHover { hovering in
+            isHoveringFullscreenChrome = hovering
+            if hovering {
+                fullscreenChromeTask?.cancel()
+                fullscreenChromeTask = nil
+            } else {
+                scheduleFullscreenChromeHide()
+            }
+        }
+    }
+
+    private func pokeFullscreenChrome() {
+        if !fullscreenChromeVisible {
+            fullscreenChromeVisible = true
+        }
+        guard !isHoveringFullscreenChrome else { return }
+        scheduleFullscreenChromeHide()
+    }
+
+    private func scheduleFullscreenChromeHide() {
+        fullscreenChromeTask?.cancel()
+        fullscreenChromeTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            guard editor.isPreviewFullscreen, !isHoveringFullscreenChrome, !isScrubbing else { return }
+            fullscreenChromeVisible = false
+            NSCursor.setHiddenUntilMouseMoves(true)
+        }
     }
 
     // MARK: - Transport bar
@@ -95,10 +191,29 @@ struct PreviewContainerView: View {
             if isTimeline || editor.activePreviewTab.clipType == .video {
                 captureFrameButton
             }
+            if editor.canFullscreenPreview {
+                fullscreenPreviewButton
+            }
             projectSettingsGroup
         }
         .padding(.horizontal, AppTheme.Spacing.lg)
         .frame(height: 36)
+    }
+
+    // MARK: - Fullscreen preview button
+
+    private var fullscreenPreviewButton: some View {
+        Button {
+            NSApp.sendAction(#selector(EditorActions.toggleFullscreenPreview(_:)), to: nil, from: nil)
+        } label: {
+            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                .font(.system(size: AppTheme.FontSize.sm))
+                .foregroundStyle(AppTheme.Text.secondaryColor)
+                .frame(width: AppTheme.IconSize.mdLg, height: AppTheme.IconSize.mdLg)
+                .hoverHighlight()
+                .help("Fullscreen Preview (⇧⌘F)")
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Image settings bar

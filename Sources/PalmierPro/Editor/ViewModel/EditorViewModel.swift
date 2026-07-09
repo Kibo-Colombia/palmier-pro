@@ -44,7 +44,19 @@ final class EditorViewModel {
     }
 
     var focusedPanel: FocusedPanel?
-    var maximizedPanel: FocusedPanel?
+    var maximizedPanel: FocusedPanel? {
+        didSet {
+            // Anything that unmaximizes the preview out-of-band (tour steps,
+            // notification reveals) drops fullscreen preview mode with it —
+            // the two states are never allowed to drift apart.
+            if isPreviewFullscreen && maximizedPanel != .preview {
+                isPreviewFullscreen = false
+            }
+        }
+    }
+    /// Fullscreen preview mode — driven by `FullscreenPreviewController`, read by
+    /// the preview UI to strip its chrome. Transient; never persisted.
+    var isPreviewFullscreen: Bool = false
 
     // MARK: - Tutorial tour
 

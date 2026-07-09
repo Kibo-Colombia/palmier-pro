@@ -35,6 +35,7 @@ final class ToolExecutor {
             case .moveClips:        return try moveClips(editor, args)
             case .setClipProperties: return try setClipProperties(editor, args)
             case .setKeyframes:     return try setKeyframes(editor, args)
+            case .applyTransition:  return try applyTransition(editor, args)
             case .setGrade:         return try setGrade(editor, args)
             case .setMask:          return try setMask(editor, args)
             case .addAdjustmentLayer: return try addAdjustmentLayer(editor, args)

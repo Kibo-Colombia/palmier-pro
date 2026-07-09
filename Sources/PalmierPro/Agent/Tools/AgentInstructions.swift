@@ -55,6 +55,10 @@ enum AgentInstructions {
             existing keyframes on that property.
           • set_keyframes: replace the keyframe track for one (clipId, property) pair. Empty \
             array clears. Frames are clip-relative.
+          • apply_transition: the house mode-switch gesture for full-frame slide/screen \
+            takeovers over footage — REQUIRED on every such handoff ('paper' long-form, \
+            'punch' short-form). Never hand-build it with set_keyframes; the numbers are \
+            canon and the signature SFX pins to them.
           • split_clip: atFrame must be strictly inside the clip.
         - speed 1.0 is normal; <1.0 stretches the clip longer on the timeline; >1.0 shortens \
           it. trim* values are source offsets, not timeline offsets.

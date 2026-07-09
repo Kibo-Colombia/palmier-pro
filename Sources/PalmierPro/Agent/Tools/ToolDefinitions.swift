@@ -10,6 +10,7 @@ enum ToolName: String, CaseIterable, Sendable {
     case moveClips = "move_clips"
     case setClipProperties = "set_clip_properties"
     case setKeyframes = "set_keyframes"
+    case applyTransition = "apply_transition"
     case setGrade = "set_grade"
     case setMask = "set_mask"
     case addAdjustmentLayer = "add_adjustment_layer"
@@ -237,6 +238,26 @@ enum ToolDefinitions {
                     ],
                 ],
                 required: ["clipId", "property", "keyframes"]
+            )
+        ),
+        AgentTool(
+            name: .applyTransition,
+            description: "The house mode-switch transition — REQUIRED on every full-frame handoff between talking-head footage and a website slide (Mode A↔B in the MiraiKibo flagship system). Whenever a full-frame slide/screen-takeover clip is placed over footage, call this on that clip right after add_clips instead of hand-building the gesture with set_keyframes — the numbers are canon (brain/03_studio/VIDEO_MANUAL.md) and a signature SFX pins to the exposure kiss at the clip edges, so they must not drift per edit. Self-contained: all keyframes land on the given clip.\n\nStyles:\n  • 'paper' — \"el pase de papel\", the long-form default. Subtle: the slide passes upward through the frame (rises in from +7% below with a 10-frame fade and a +0.45 exposure kiss; exits continuing up to −5% with a +0.5 closing kiss into the cut). ~0.25 s per edge @60 fps.\n  • 'punch' — \"el golpe\", the short-form default. Aggressive hook: snap punch-in around the clip's center (116%→100% scale over ~7 frames with a −2° rotation settle, 4-frame fade, +1.2 exposure flash; exits punching back out to 112% with a +1.0 flash). ~0.12 s per edge.\n\nWrites position/opacity/grade (punch also scale/rotation) keyframe tracks on the clip, REPLACING whatever those tracks held. Edge windows auto-shrink on short clips (each edge caps at a third of the clip). edges limits the stamp to one side — use 'in'/'out' when slides chain back-to-back (B→B) so only the outer edges get the gesture. Mode-C overlays (partial-frame accompaniments) do NOT get this — give them plain in-place opacity fades.",
+            inputSchema: objectSchema(
+                properties: [
+                    "clipId": ["type": "string", "description": "The full-frame slide clip (from add_clips / get_timeline)."],
+                    "style": [
+                        "type": "string",
+                        "enum": ["paper", "punch"],
+                        "description": "paper = long-form subtle pass; punch = short-form aggressive hook.",
+                    ],
+                    "edges": [
+                        "type": "string",
+                        "enum": ["both", "in", "out"],
+                        "description": "Optional. Which clip edges get the gesture (default both).",
+                    ],
+                ],
+                required: ["clipId", "style"]
             )
         ),
         AgentTool(

@@ -104,6 +104,32 @@ extension EditorViewModel {
         }
     }
 
+    /// Animation-aware grade edit (live, during a drag). Like `writeOpacity`, an active
+    /// `gradeTrack` shadows the static grade at render time — so when one exists, editing
+    /// the static grade is a dead write: the panel looks neutral over a graded render and
+    /// slider moves change nothing (or appear to wipe the agent's keyframed grade). Instead,
+    /// mutate the EFFECTIVE grade at the playhead and stamp it back as a keyframe.
+    func applyGrade(clipId: String, _ mutate: @escaping (inout ColorGrade) -> Void) {
+        applyClipProperty(clipId: clipId) { self.writeGrade(into: &$0, mutate) }
+    }
+
+    /// Commit counterpart of `applyGrade` (one undo entry; callers set the action name).
+    func commitGrade(clipId: String, _ mutate: @escaping (inout ColorGrade) -> Void) {
+        commitClipProperty(clipId: clipId) { self.writeGrade(into: &$0, mutate) }
+    }
+
+    private func writeGrade(into clip: inout Clip, _ mutate: (inout ColorGrade) -> Void) {
+        if clip.gradeTrack?.isActive == true {
+            // Clamp so edits made while the playhead sits outside the clip still land inside it.
+            let frame = max(clip.startFrame, min(clip.endFrame - 1, activeFrame))
+            var grade = clip.gradeAt(frame: frame)
+            mutate(&grade)
+            clip.upsertKeyframe(in: \.gradeTrack, frame: frame, value: grade)
+        } else {
+            mutate(&clip.grade)
+        }
+    }
+
     func applyRotation(clipId: String, valueDeg: Double) {
         applyClipProperty(clipId: clipId) { self.writeRotation(into: &$0, valueDeg: valueDeg) }
     }

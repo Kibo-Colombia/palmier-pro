@@ -32,11 +32,13 @@ struct ColorHSLTab: View {
     }
 
     private var bandPicker: some View {
-        HStack(spacing: AppTheme.Spacing.sm) {
+        let frame = editor.activeFrame
+        return HStack(spacing: AppTheme.Spacing.sm) {
             ForEach(0..<HSLAdjust.bandCount, id: \.self) { i in
                 let selected = band == i
                 let touched = clips.contains { c in
-                    c.grade.hsl.hueShift[i] != 0 || c.grade.hsl.saturation[i] != 0 || c.grade.hsl.luminance[i] != 0
+                    let hsl = c.gradeAt(frame: frame).hsl
+                    return hsl.hueShift[i] != 0 || hsl.saturation[i] != 0 || hsl.luminance[i] != 0
                 }
                 Button {
                     band = i

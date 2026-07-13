@@ -15,6 +15,9 @@ struct ColorSectionView: View {
             header
             if expanded {
                 VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
+                    if playheadOutsideSelection {
+                        playheadMismatchNotice
+                    }
                     subTabBar
                     switch subTab {
                     case .basic:  ColorBasicTab(clips: clips)
@@ -26,6 +29,74 @@ struct ColorSectionView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Selection vs playhead
+
+    /// True when the preview frame belongs to a different clip than the one being edited —
+    /// the classic trap: you scrub to the shot you want to grade, but the sliders drive the
+    /// clip you selected earlier, somewhere else on the timeline.
+    private var playheadOutsideSelection: Bool {
+        !clips.isEmpty && !clips.contains { $0.contains(timelineFrame: editor.activeFrame) }
+    }
+
+    /// The topmost gradable clip under the playhead (what the preview is showing), if any.
+    private var gradableClipAtPlayhead: Clip? {
+        let frame = editor.activeFrame
+        for track in editor.timeline.tracks where track.type == .video {
+            if let clip = track.clips.first(where: {
+                $0.contains(timelineFrame: frame) && $0.mediaType.isVisual && $0.mediaType != .text
+            }) {
+                return clip
+            }
+        }
+        return nil
+    }
+
+    private var editingLabel: String {
+        if clips.count == 1, let clip = clips.first {
+            return "“\(editor.clipDisplayLabel(for: clip))”"
+        }
+        return "\(clips.count) clips"
+    }
+
+    /// Names the clip receiving the edits and offers a one-click jump to what's on screen.
+    /// Deliberately never auto-switches the selection — that would surprise other workflows.
+    private var playheadMismatchNotice: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
+            HStack(alignment: .firstTextBaseline, spacing: AppTheme.Spacing.xs) {
+                Image(systemName: "scope")
+                    .font(.system(size: AppTheme.FontSize.xs))
+                    .foregroundStyle(AppTheme.Accent.timecodeColor)
+                Text("Editing \(editingLabel) — not the clip at the playhead.")
+                    .font(.system(size: AppTheme.FontSize.xs))
+                    .foregroundStyle(AppTheme.Text.secondaryColor)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let target = gradableClipAtPlayhead {
+                Button {
+                    editor.selectedClipIds = editor.expandToLinkGroup([target.id])
+                } label: {
+                    Text("Select “\(editor.clipDisplayLabel(for: target))”")
+                        .font(.system(size: AppTheme.FontSize.xs, weight: .medium))
+                        .foregroundStyle(AppTheme.Accent.timecodeColor)
+                        .lineLimit(1)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Switch the selection to the clip the preview is showing")
+            }
+        }
+        .padding(AppTheme.Spacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.Radius.sm)
+                .fill(AppTheme.Accent.timecodeColor.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.Radius.sm)
+                .strokeBorder(AppTheme.Accent.timecodeColor.opacity(0.35), lineWidth: AppTheme.BorderWidth.hairline)
+        )
     }
 
     // MARK: - Header

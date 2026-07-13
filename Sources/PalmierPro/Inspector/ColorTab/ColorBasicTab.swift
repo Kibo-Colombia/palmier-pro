@@ -108,7 +108,7 @@ struct ColorBasicTab: View {
 
     private func applyPreset(_ preset: GradePresetStore.GradePreset) {
         commitGradeToClips(editor, clips, actionName: "Apply Grade Preset") { c in
-            editor.commitClipProperty(clipId: c.id) { $0.grade = preset.grade }
+            editor.commitGrade(clipId: c.id) { $0 = preset.grade }
         }
     }
 
@@ -127,12 +127,12 @@ struct ColorBasicTab: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(clips.first.map(\.grade.isIdentity) ?? true)
+        .disabled(clips.first.map { $0.gradeAt(frame: editor.activeFrame).isIdentity } ?? true)
         .help("Save this clip's grade as a reusable preset")
     }
 
     private func savePresetFromUI() {
-        guard let grade = clips.first?.grade, !grade.isIdentity else { return }
+        guard let grade = clips.first.map({ $0.gradeAt(frame: editor.activeFrame) }), !grade.isIdentity else { return }
         let alert = NSAlert()
         alert.messageText = "Save Grade Preset"
         alert.informativeText = "Name this look — it will appear under My presets in every project."
@@ -165,20 +165,21 @@ struct ColorBasicTab: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(clips.first.map(\.grade.isIdentity) ?? true)
+        .disabled(clips.first.map { $0.gradeAt(frame: editor.activeFrame).isIdentity } ?? true)
         .help("Copy this clip's grade to every clip in the timeline")
     }
 
-    /// CapCut behavior: copies the STATIC grade to every gradable clip (text clips don't
-    /// render a grade; adjustment layers keep their own so effects don't double up).
+    /// CapCut behavior: copies the source clip's EFFECTIVE grade (at the playhead) to every
+    /// gradable clip (text clips don't render a grade; adjustment layers keep their own so
+    /// effects don't double up).
     private func applyToAllClips() {
-        guard let grade = clips.first?.grade else { return }
+        guard let grade = clips.first.map({ $0.gradeAt(frame: editor.activeFrame) }) else { return }
         let targets = editor.timeline.tracks.flatMap(\.clips).filter {
             $0.mediaType.isVisual && $0.mediaType != .text && $0.mediaType != .adjustment
         }
         guard !targets.isEmpty else { return }
         commitGradeToClips(editor, targets, actionName: "Apply Grade to All") { c in
-            editor.commitClipProperty(clipId: c.id) { $0.grade = grade }
+            editor.commitGrade(clipId: c.id) { $0 = grade }
         }
     }
 
@@ -198,14 +199,17 @@ struct ColorBasicTab: View {
     // MARK: - Looks (LUT) strip
 
     /// The look id shared by every selected clip, or nil if they disagree / have none.
+    /// Reads the effective grade — a keyframed grade carries the look in its keyframes.
     private var currentLut: String? {
-        let first = clips.first?.grade.lut
-        return clips.allSatisfy { $0.grade.lut == first } ? first : nil
+        let frame = editor.activeFrame
+        let first = clips.first?.gradeAt(frame: frame).lut
+        return clips.allSatisfy { $0.gradeAt(frame: frame).lut == first } ? first : nil
     }
 
     private var looksStrip: some View {
-        let first = clips.first?.grade.lut
-        let uniform = clips.allSatisfy { $0.grade.lut == first }
+        let frame = editor.activeFrame
+        let first = clips.first?.gradeAt(frame: frame).lut
+        let uniform = clips.allSatisfy { $0.gradeAt(frame: frame).lut == first }
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: AppTheme.Spacing.sm) {
                 lookChip(name: "None", colors: lookSwatch(nil), selected: uniform && first == nil) {
@@ -288,7 +292,7 @@ struct ColorBasicTab: View {
 
     private func applyLook(_ id: String?) {
         commitGradeToClips(editor, clips, actionName: id == nil ? "Clear Look" : "Apply Look") { c in
-            editor.commitClipProperty(clipId: c.id) { $0.grade.lut = id }
+            editor.commitGrade(clipId: c.id) { $0.lut = id }
         }
     }
 
@@ -305,7 +309,8 @@ struct ColorBasicTab: View {
     // MARK: - Protect skin tone
 
     private var protectSkinToneToggle: some View {
-        let shared = sharedClipValue(clips) { $0.grade.protectSkinTone > 0 }
+        let frame = editor.activeFrame
+        let shared = sharedClipValue(clips) { $0.gradeAt(frame: frame).protectSkinTone > 0 }
         return HStack(spacing: AppTheme.Spacing.sm) {
             Text("Protect skin tone")
                 .font(.system(size: AppTheme.FontSize.xs))
@@ -315,7 +320,7 @@ struct ColorBasicTab: View {
                 get: { shared ?? false },
                 set: { on in
                     commitGradeToClips(editor, clips, actionName: "Protect Skin Tone") { c in
-                        editor.commitClipProperty(clipId: c.id) { $0.grade.protectSkinTone = on ? 1 : 0 }
+                        editor.commitGrade(clipId: c.id) { $0.protectSkinTone = on ? 1 : 0 }
                     }
                 }
             ))
@@ -346,6 +351,9 @@ struct ColorBasicTab: View {
         .help("Auto-correct exposure + white balance")
     }
 
+    // TODO: GradeCompositor's temperature/tint scaling (×30 mapping, sign behavior) has known
+    // issues that also skew AutoColorAnalysis's temp/tint suggestions — existing grades and
+    // presets are calibrated to the current behavior, so fixing it needs a coordinated migration.
     private func autoColor() {
         let fps = editor.timeline.fps
         let items: [(String, URL)] = clips.compactMap { c in
@@ -363,8 +371,8 @@ struct ColorBasicTab: View {
             guard !results.isEmpty else { return }
             editor.undoManager?.beginUndoGrouping()
             for (id, r) in results {
-                editor.commitClipProperty(clipId: id) {
-                    $0.grade.exposure = r.exposure; $0.grade.temperature = r.temperature; $0.grade.tint = r.tint
+                editor.commitGrade(clipId: id) {
+                    $0.exposure = r.exposure; $0.temperature = r.temperature; $0.tint = r.tint
                 }
             }
             editor.undoManager?.endUndoGrouping()

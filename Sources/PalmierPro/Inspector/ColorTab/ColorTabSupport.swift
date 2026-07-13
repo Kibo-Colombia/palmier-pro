@@ -21,6 +21,12 @@ func commitGradeToClips(_ editor: EditorViewModel, _ clips: [Clip], actionName: 
 
 /// A `GradeSlider` bound to one scalar channel of every selected clip's grade.
 /// Live-applies during the drag, commits once (one undo group) on release.
+///
+/// Reads and writes the clip's EFFECTIVE grade (`gradeAt` the playhead), never the raw
+/// static grade: an active `gradeTrack` shadows the static grade at render time, so the
+/// static values can be stale/neutral while the render is fully graded. Hydrating from
+/// the effective grade keeps the panel truthful for both static and keyframed grades,
+/// and `applyGrade`/`commitGrade` merge the touched channel into whichever store renders.
 struct GradeSliderRow: View {
     @Environment(EditorViewModel.self) private var editor
     let label: String
@@ -34,22 +40,23 @@ struct GradeSliderRow: View {
     let action: String
 
     var body: some View {
+        let frame = editor.activeFrame
         GradeSlider(
             label: label,
-            value: sharedClipValue(clips) { $0.grade[keyPath: keyPath] },
+            value: sharedClipValue(clips) { $0.gradeAt(frame: frame)[keyPath: keyPath] },
             range: range, neutral: neutral, format: format,
             displayMultiplier: multiplier, valueSuffix: suffix,
             onChanged: { v in
-                for c in clips { editor.applyClipProperty(clipId: c.id) { $0.grade[keyPath: keyPath] = v } }
+                for c in clips { editor.applyGrade(clipId: c.id) { $0[keyPath: keyPath] = v } }
             },
             onCommit: { v in
                 commitGradeToClips(editor, clips, actionName: action) { c in
-                    editor.commitClipProperty(clipId: c.id) { $0.grade[keyPath: keyPath] = v }
+                    editor.commitGrade(clipId: c.id) { $0[keyPath: keyPath] = v }
                 }
             },
             onReset: {
                 commitGradeToClips(editor, clips, actionName: action) { c in
-                    editor.commitClipProperty(clipId: c.id) { $0.grade[keyPath: keyPath] = neutral }
+                    editor.commitGrade(clipId: c.id) { $0[keyPath: keyPath] = neutral }
                 }
             }
         )

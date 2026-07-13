@@ -35,13 +35,13 @@ struct ColorWheelsTab: View {
     private func wheelRow(_ wheel: Wheel) -> some View {
         HStack(alignment: .top, spacing: AppTheme.Spacing.md) {
             ColorWheelControl(
-                value: sharedClipValue(clips) { $0.grade[keyPath: wheel.keyPath] },
+                value: sharedClipValue(clips) { $0.gradeAt(frame: editor.activeFrame)[keyPath: wheel.keyPath] },
                 onChanged: { v in
-                    for c in clips { editor.applyClipProperty(clipId: c.id) { $0.grade[keyPath: wheel.keyPath] = v } }
+                    for c in clips { editor.applyGrade(clipId: c.id) { $0[keyPath: wheel.keyPath] = v } }
                 },
                 onCommit: { v in
                     commitGradeToClips(editor, clips, actionName: "Adjust \(wheel.name)") { c in
-                        editor.commitClipProperty(clipId: c.id) { $0.grade[keyPath: wheel.keyPath] = v }
+                        editor.commitGrade(clipId: c.id) { $0[keyPath: wheel.keyPath] = v }
                     }
                 }
             )
@@ -69,7 +69,7 @@ struct ColorWheelsTab: View {
     private func resetWheelButton(_ wheel: Wheel) -> some View {
         Button {
             commitGradeToClips(editor, clips, actionName: "Reset \(wheel.name)") { c in
-                editor.commitClipProperty(clipId: c.id) { $0.grade[keyPath: wheel.keyPath] = WheelAdjust() }
+                editor.commitGrade(clipId: c.id) { $0[keyPath: wheel.keyPath] = WheelAdjust() }
             }
         } label: {
             Image(systemName: "arrow.counterclockwise")

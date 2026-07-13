@@ -38,22 +38,22 @@ struct ColorCurvesTab: View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
             channelPicker
             CurveEditorView(
-                points: sharedClipValue(clips) { $0.grade[keyPath: channel.keyPath] } ?? [],
+                points: sharedClipValue(clips) { $0.gradeAt(frame: editor.activeFrame)[keyPath: channel.keyPath] } ?? [],
                 accent: channel.accent,
                 onChange: { pts in
                     let kp = channel.keyPath
-                    for c in clips { editor.applyClipProperty(clipId: c.id) { $0.grade[keyPath: kp] = pts } }
+                    for c in clips { editor.applyGrade(clipId: c.id) { $0[keyPath: kp] = pts } }
                 },
                 onCommit: { pts in
                     let kp = channel.keyPath
                     commitGradeToClips(editor, clips, actionName: "Adjust \(channel.rawValue) Curve") { c in
-                        editor.commitClipProperty(clipId: c.id) { $0.grade[keyPath: kp] = pts }
+                        editor.commitGrade(clipId: c.id) { $0[keyPath: kp] = pts }
                     }
                 },
                 onReset: {
                     let kp = channel.keyPath
                     commitGradeToClips(editor, clips, actionName: "Reset \(channel.rawValue) Curve") { c in
-                        editor.commitClipProperty(clipId: c.id) { $0.grade[keyPath: kp] = [] }
+                        editor.commitGrade(clipId: c.id) { $0[keyPath: kp] = [] }
                     }
                 }
             )
@@ -64,10 +64,11 @@ struct ColorCurvesTab: View {
     }
 
     private var channelPicker: some View {
-        HStack(spacing: AppTheme.Spacing.xs) {
+        let frame = editor.activeFrame
+        return HStack(spacing: AppTheme.Spacing.xs) {
             ForEach(Channel.allCases, id: \.self) { ch in
                 let selected = channel == ch
-                let touched = clips.contains { !CurveSet.channelIsIdentity($0.grade[keyPath: ch.keyPath]) }
+                let touched = clips.contains { !CurveSet.channelIsIdentity($0.gradeAt(frame: frame)[keyPath: ch.keyPath]) }
                 Button {
                     channel = ch
                 } label: {

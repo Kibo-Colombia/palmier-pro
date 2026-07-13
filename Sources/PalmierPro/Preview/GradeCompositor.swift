@@ -106,10 +106,39 @@ final class GradeCompositor: NSObject, AVVideoCompositing {
     // A single Metal-backed CIContext shared across all requests (CIContext is thread-safe for rendering).
     private static let ciContext = CIContext(options: [.cacheIntermediates: false])
 
-    // Creative LUTs (and our synthesized looks) are authored in gamma-encoded sRGB. Telling
-    // CIColorCubeWithColorSpace to sample in sRGB stops CI from converting to linear light first,
-    // which would wash the look out.
+    // Our synthesized cubes (bundled looks, correction cubes) are authored in gamma-encoded sRGB.
+    // Telling CIColorCubeWithColorSpace to sample in sRGB stops CI from converting to linear
+    // light first, which would wash the look out.
     static let lutColorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+
+    // Imported .cube LUTs are pure code-value maps (Resolve/FCP apply them with no colorspace
+    // conversion on either side), so they must be sampled in the *source frame's own* color
+    // space: CI's encode is then the exact inverse of its decode and the cube sees the file's
+    // real code values. For BT.709 video that space is the ~1.961-gamma "HDTV" ICC profile
+    // CoreVideo attaches to decoded buffers — NOT CGColorSpace(name: .itur_709), whose curve
+    // differs. Sampling a Resolve-baked cube in sRGB instead measured ≈ +8…9/255 of lifted,
+    // washed-out mids vs Resolve's own render; in the buffer's space it matches within noise
+    // (MAE ≈ 3/255 ≈ the H.264 + trilinear-interpolation floor). Empirical harness:
+    // spikes/ColorPipelineSpike.swift.
+    static let videoColorSpace: CGColorSpace = {
+        let atts: [CFString: Any] = [
+            kCVImageBufferColorPrimariesKey: kCVImageBufferColorPrimaries_ITU_R_709_2,
+            kCVImageBufferTransferFunctionKey: kCVImageBufferTransferFunction_ITU_R_709_2,
+            kCVImageBufferYCbCrMatrixKey: kCVImageBufferYCbCrMatrix_ITU_R_709_2,
+        ]
+        return CVImageBufferCreateColorSpaceFromAttachments(atts as CFDictionary)?.takeRetainedValue()
+            ?? CGColorSpace(name: CGColorSpace.sRGB)!
+    }()
+
+    /// The `inputColorSpace` to sample `cube` in. `sourceColorSpace` is the frame's own space
+    /// (from its pixel buffer); nil (adjustment layers, working-space composites) falls back to
+    /// the composition's BT.709 output space — CompositionBuilder always tags compositions 709.
+    static func cubeSpace(for cube: LUTCube, sourceColorSpace: CGColorSpace?) -> CGColorSpace {
+        switch cube.sampling {
+        case .gammaSRGB: lutColorSpace
+        case .videoSource: sourceColorSpace ?? videoColorSpace
+        }
+    }
 
     let sourcePixelBufferAttributes: [String: any Sendable]? = [
         kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
@@ -164,7 +193,8 @@ final class GradeCompositor: NSObject, AVVideoCompositing {
                 if !grade.isIdentity {
                     let correction = cr.correctionCube
                         ?? (grade.needsCorrectionCube ? GradeCubeCache.shared.correctionCube(for: grade) : nil)
-                    let graded = Self.applyGrade(grade, cube: cr.cube, correctionCube: correction, to: img)
+                    let graded = Self.applyGrade(grade, cube: cr.cube, correctionCube: correction,
+                                                 sourceColorSpace: img.colorSpace, to: img)
                     let mask = cr.clip.maskAt(frame: frame)
                     if mask.isIdentity {
                         img = graded
@@ -261,9 +291,12 @@ final class GradeCompositor: NSObject, AVVideoCompositing {
         if opacity < 1 { grade.intensity *= max(0, opacity) }
         guard !grade.isIdentity, grade.intensity > 0 else { return output }
 
+        // The stack below is a working-space composite headed for the composition's BT.709
+        // output — no per-buffer colorspace exists here, so code-value LUTs use the 709 fallback.
         let correction = adj.correctionCube
             ?? (grade.needsCorrectionCube ? GradeCubeCache.shared.correctionCube(for: grade) : nil)
-        let graded = applyGrade(grade, cube: adj.cube, correctionCube: correction, to: output)
+        let graded = applyGrade(grade, cube: adj.cube, correctionCube: correction,
+                                sourceColorSpace: nil, to: output)
 
         var result: CIImage
         let mask = adj.clip.maskAt(frame: frame)
@@ -289,7 +322,12 @@ final class GradeCompositor: NSObject, AVVideoCompositing {
     /// in `startRequest`). Identity grade is a no-op passthrough. Order:
     /// LUT → exposure → color controls → temperature/tint → correction cube (wheels/curves/HSL/tonal)
     /// → hue → sharpen → clarity → intensity (wet/dry) mix.
+    ///
+    /// `sourceColorSpace` is the graded frame's own color space (pass `CIImage.colorSpace` of the
+    /// image built from the source pixel buffer); imported code-value LUTs sample in it — see
+    /// `cubeSpace(for:sourceColorSpace:)`.
     static func applyGrade(_ grade: ColorGrade, cube: LUTCube?, correctionCube: LUTCube? = nil,
+                           sourceColorSpace: CGColorSpace? = nil,
                            to image: CIImage) -> CIImage {
         guard !grade.isIdentity else { return image }
         var img = image
@@ -301,7 +339,7 @@ final class GradeCompositor: NSObject, AVVideoCompositing {
             let looked = img.applyingFilter("CIColorCubeWithColorSpace", parameters: [
                 "inputCubeDimension": cube.dimension,
                 "inputCubeData": cube.data,
-                "inputColorSpace": lutColorSpace,
+                "inputColorSpace": cubeSpace(for: cube, sourceColorSpace: sourceColorSpace),
             ]).cropped(to: img.extent)
             let li = CGFloat(max(0, min(1, grade.lookIntensity)))
             img = li >= 1 ? looked
@@ -328,12 +366,12 @@ final class GradeCompositor: NSObject, AVVideoCompositing {
         }
 
         // Secondary corrections — wheels → curves → HSL → highlights/shadows → fade, pre-baked
-        // into one 3D cube (GradeMath). Sampled in the same gamma sRGB space as creative LUTs.
+        // into one 3D cube (GradeMath), authored against gamma-sRGB sampling.
         if grade.needsCorrectionCube, let correctionCube {
             img = img.applyingFilter("CIColorCubeWithColorSpace", parameters: [
                 "inputCubeDimension": correctionCube.dimension,
                 "inputCubeData": correctionCube.data,
-                "inputColorSpace": lutColorSpace,
+                "inputColorSpace": cubeSpace(for: correctionCube, sourceColorSpace: sourceColorSpace),
             ])
         }
 

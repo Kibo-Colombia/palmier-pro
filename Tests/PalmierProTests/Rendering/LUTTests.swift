@@ -62,6 +62,28 @@ struct LUTTests {
         #expect(abs(r - g) < 0.001 && abs(g - b) < 0.001)
     }
 
+    @Test("imported cubes are tagged videoSource; synthesized cubes stay gammaSRGB")
+    func cubeSamplingTags() throws {
+        let imported = try #require(CubeLUTParser.parse(text: """
+        LUT_3D_SIZE 2
+        0 0 0
+        1 0 0
+        0 1 0
+        1 1 0
+        0 0 1
+        1 0 1
+        0 1 1
+        1 1 1
+        """))
+        #expect(imported.sampling == .videoSource)               // Resolve-style code-value map
+        let bundled = try #require(BundledLooks.cube(for: "warm"))
+        #expect(bundled.sampling == .gammaSRGB)                   // authored against sRGB sampling
+        #expect(GradeMath.correctionCube(for: ColorGrade(contrast: 1.2)).sampling == .gammaSRGB)
+        // Skin protection must not re-space the look it wraps.
+        #expect(GradeMath.skinProtected(imported, protect: 0.5).sampling == .videoSource)
+        #expect(GradeMath.skinProtected(bundled, protect: 0.5).sampling == .gammaSRGB)
+    }
+
     @Test("ColorGrade LUT fields round-trip and gate isIdentity")
     func gradeLUTCodableAndIdentity() throws {
         #expect(ColorGrade().isIdentity)                                  // neutral

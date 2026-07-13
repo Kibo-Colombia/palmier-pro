@@ -135,7 +135,8 @@ enum GradeMath {
                 }
             }
         }
-        return LUTCube(dimension: n, data: values.withUnsafeBytes { Data($0) })
+        // Preserve the base cube's sampling space — protection must not re-space the look.
+        return LUTCube(dimension: n, data: values.withUnsafeBytes { Data($0) }, sampling: base.sampling)
     }
 
     /// Skin likelihood of a gamma-sRGB color: a raised-cosine hue window around 15°–45°

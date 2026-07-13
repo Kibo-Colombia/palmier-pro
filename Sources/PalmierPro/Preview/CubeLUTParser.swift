@@ -6,8 +6,26 @@ import Foundation
 /// `offset(r,g,b) = (b*n*n + g*n + r) * 4`, alpha = 1. Resolved cube data is carried on the
 /// render model (see GradeCompositor) so the compositor never touches disk.
 struct LUTCube: Sendable, Equatable {
+    /// Which encoding the cube's 0…1 lattice is indexed in — i.e. the `inputColorSpace`
+    /// GradeCompositor hands to `CIColorCubeWithColorSpace`.
+    ///
+    /// - `gammaSRGB`: our synthesized cubes (bundled looks, correction cubes). They were
+    ///   authored/tuned against sRGB sampling — keep them exactly as they've always rendered.
+    /// - `videoSource`: user-imported `.cube` files. Grading tools (Resolve, FCP…) bake a LUT
+    ///   as a pure *code value → code value* map of the footage's own encoding, with no
+    ///   colorspace conversion on either side. Sampling in the source frame's own color space
+    ///   makes CI's encode the exact inverse of its decode, so the cube sees the file's real
+    ///   code values — measured against Resolve's render of identical footage+LUT this is the
+    ///   difference between ≈+9/255 washed-out mids and matching within noise (see
+    ///   spikes/ColorPipelineSpike.swift).
+    enum Sampling: Sendable, Equatable {
+        case gammaSRGB
+        case videoSource
+    }
+
     let dimension: Int
     let data: Data
+    var sampling: Sampling = .gammaSRGB
 }
 
 /// Minimal Adobe/IRIDAS `.cube` text parser (no dependency). 3D LUTs only.
@@ -45,6 +63,8 @@ enum CubeLUTParser {
         }
 
         guard dimension > 1, values.count == dimension * dimension * dimension * 4 else { return nil }
-        return LUTCube(dimension: dimension, data: values.withUnsafeBytes { Data($0) })
+        // Imported LUTs are code-value maps of the footage's own encoding (Resolve semantics).
+        return LUTCube(dimension: dimension, data: values.withUnsafeBytes { Data($0) },
+                       sampling: .videoSource)
     }
 }

@@ -44,6 +44,10 @@ enum LibraryAgentInstructions {
           deleting one moves nothing on disk.
         - When done, briefly report the Spaces you made and how many files each holds. The user \
           sees them appear in the sidebar.
+        - When the user wants to start editing a Space, `create_project_from_space` spins off a new \
+          editor Project (named after the Space) and opens it — the Space's clips land on the \
+          timeline pre-trimmed to each shot. The Space is untouched; the Project is a disposable \
+          output. This is the same as the "Create as Project" button, so you can do it for them.
 
         # Physically organizing files (only when asked)
         - `list_folder` sees EVERY file type (audio, .LRF proxies, scratch), not just video; \

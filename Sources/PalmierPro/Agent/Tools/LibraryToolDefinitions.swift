@@ -15,6 +15,7 @@ enum LibraryToolName: String, CaseIterable, Sendable {
     case removeFromSpace = "remove_from_space"
     case renameSpace = "rename_space"
     case removeSpace = "remove_space"
+    case createProjectFromSpace = "create_project_from_space"
     case listFolder = "list_folder"
     case createFolder = "create_folder"
     case moveFile = "move_file"
@@ -106,6 +107,13 @@ enum LibraryToolDefinitions {
             "Deletes a Space (the grouping only — the underlying footage is never touched). Confirm intent before calling.",
             obj(properties: [
                 "spaceId": ["type": "string", "description": "Space id to delete."],
+            ], required: ["spaceId"])
+        ),
+        schema(
+            .createProjectFromSpace,
+            "Spins off a NEW editor Project from a Space and opens it in Koma — the Space's footage is laid onto the timeline back-to-back, each clip pre-trimmed to its shot range. The Space is an input; the Project is a disposable output, saved into the projects folder named after the Space (a repeat call makes '<name> 2', etc.). Nothing on disk is moved and the Space is unchanged. This is how you turn an organized Space into something editable without the user clicking 'Create as Project'. Errors if the Space has no footage that still resolves to a file — add clips with add_to_space first.",
+            obj(properties: [
+                "spaceId": ["type": "string", "description": "Space id to spin off (from list_spaces or create_space)."],
             ], required: ["spaceId"])
         ),
         schema(

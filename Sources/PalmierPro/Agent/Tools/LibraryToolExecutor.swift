@@ -27,6 +27,7 @@ final class LibraryToolExecutor: AgentToolHost {
             case .removeFromSpace: return try removeFromSpace(args)
             case .renameSpace:    return try renameSpace(args)
             case .removeSpace:    return try removeSpace(args)
+            case .createProjectFromSpace: return try createProjectFromSpace(args)
             case .listFolder:     return try listFolder(args)
             case .createFolder:   return try createFolder(args)
             case .moveFile:       return try moveFile(args)
@@ -341,6 +342,29 @@ final class LibraryToolExecutor: AgentToolHost {
         let space = try resolveSpace(args)
         SpaceRegistry.shared.remove(space.id)
         return jsonResult(["ok": true])
+    }
+
+    /// Spin off a new editor Project from a Space and open it — the same path as the
+    /// "Create as Project" button (`AppState.createProject(from:)`), exposed to the agent.
+    /// We resolve the moments up front so an empty/unresolvable Space returns a clean error
+    /// instead of the UI's beep-and-return, and so we can report the clip count.
+    private func createProjectFromSpace(_ args: [String: Any]) throws -> ToolResult {
+        let space = try resolveSpace(args)
+        let moments = SpaceProjectSpinoff.resolve(space)
+        guard !moments.isEmpty else {
+            throw ToolError("Space '\(space.name)' has no footage that resolves to a file — nothing to spin off. Add clips with add_to_space first.")
+        }
+        AppState.shared.createProject(from: space)
+        var result: [String: Any] = [
+            "ok": true,
+            "space": space.name,
+            "clipCount": moments.count,
+            "note": "A new project named after the Space is opening in Koma; \(moments.count) clip(s) load onto the timeline pre-trimmed to each shot. The window is now on screen.",
+        ]
+        if let prior = SpaceRegistry.shared.linkedProjectURL(for: space.id) {
+            result["priorSpinoff"] = prior.deletingPathExtension().lastPathComponent
+        }
+        return jsonResult(result)
     }
 
     // MARK: - Organizer (physical files — the only tools that touch the disk)

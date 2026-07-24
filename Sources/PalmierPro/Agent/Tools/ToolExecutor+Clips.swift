@@ -39,24 +39,35 @@ fileprivate struct SetClipPropertiesInput: DecodableToolArgs {
     let content: String?
     let fontName: String?
     let fontSize: Double?
+    let fontScale: Double?
     let color: String?
     let alignment: String?
+    let shadow: ParsedShadow?
 
     static let allowedKeys: Set<String> = [
         "clipIds",
         "durationFrames", "trimStartFrame", "trimEndFrame", "speed",
         "volume", "opacity",
         "transform",
-        "content", "fontName", "fontSize", "color", "alignment",
+        "content", "fontName", "fontSize", "fontScale", "color", "alignment", "shadow",
     ]
 
     var hasAnyProperty: Bool {
         durationFrames != nil || trimStartFrame != nil || trimEndFrame != nil
             || speed != nil || volume != nil || opacity != nil
             || transform != nil
-            || content != nil || fontName != nil || fontSize != nil
-            || color != nil || alignment != nil
+            || content != nil || fontName != nil || fontSize != nil || fontScale != nil
+            || color != nil || alignment != nil || shadow != nil
     }
+}
+
+/// Partial text-shadow merge for set_clip_properties.
+struct ParsedShadow: Decodable {
+    var enabled: Bool?
+    var color: String?
+    var offsetX: Double?
+    var offsetY: Double?
+    var blur: Double?
 }
 
 fileprivate struct SetKeyframesInput: DecodableToolArgs {
@@ -328,7 +339,7 @@ extension ToolExecutor {
 
     // MARK: set_clip_properties
 
-    private static let textOnlyKeys: Set<String> = ["content", "fontName", "fontSize", "color", "alignment"]
+    private static let textOnlyKeys: Set<String> = ["content", "fontName", "fontSize", "fontScale", "color", "alignment", "shadow"]
 
     func setClipProperties(_ editor: EditorViewModel, _ args: [String: Any]) throws -> ToolResult {
         let input: SetClipPropertiesInput = try decodeToolArgs(args, path: "set_clip_properties")
@@ -341,6 +352,7 @@ extension ToolExecutor {
         }
         let color = try parseColorHex(input.color, path: "set_clip_properties")
         let alignment = try parseAlignment(input.alignment, path: "set_clip_properties")
+        let shadowColor = try parseColorHex(input.shadow?.color, path: "set_clip_properties.shadow")
 
         // Resolve clipIds + collect types so we can reject text-only fields on non-text clips.
         var clipTypes: [String: ClipType] = [:]
@@ -352,8 +364,10 @@ extension ToolExecutor {
             input.content   != nil ? "content"   : nil,
             input.fontName  != nil ? "fontName"  : nil,
             input.fontSize  != nil ? "fontSize"  : nil,
+            input.fontScale != nil ? "fontScale" : nil,
             input.color     != nil ? "color"     : nil,
             input.alignment != nil ? "alignment" : nil,
+            input.shadow    != nil ? "shadow"    : nil,
         ].compactMap { $0 }
         if !textOnlyUsed.isEmpty {
             let nonText = clipTypes.filter { $0.value != .text }.map { $0.key }.sorted()
@@ -386,13 +400,16 @@ extension ToolExecutor {
                     content: isText ? input.content : nil,
                     fontName: isText ? input.fontName : nil,
                     fontSize: isText ? input.fontSize : nil,
+                    fontScale: isText ? input.fontScale : nil,
                     color: isText ? color : nil,
                     alignment: isText ? alignment : nil,
+                    shadow: isText ? input.shadow : nil,
+                    shadowColor: isText ? shadowColor : nil,
                     clipId: id,
                     editor: editor
                 )
                 // Match the inspector: refit bbox after content/font change when caller didn't set a box.
-                if isText && input.transform == nil && (input.content != nil || input.fontName != nil || input.fontSize != nil) {
+                if isText && input.transform == nil && (input.content != nil || input.fontName != nil || input.fontSize != nil || input.fontScale != nil) {
                     editor.fitTextClipToContent(clipId: id)
                 }
                 summaries.append("\(id)\(changed.isEmpty ? " (no-op)" : ": \(changed.joined(separator: ", "))")")
@@ -406,7 +423,8 @@ extension ToolExecutor {
                     trimEndFrame:   partnerIsText ? nil : input.trimEndFrame,
                     speed:          partnerIsText ? nil : input.speed,
                     volume: nil, opacity: nil, transform: nil,
-                    content: nil, fontName: nil, fontSize: nil, color: nil, alignment: nil,
+                    content: nil, fontName: nil, fontSize: nil, fontScale: nil,
+                    color: nil, alignment: nil, shadow: nil, shadowColor: nil,
                     clipId: partnerId,
                     editor: editor
                 )
@@ -429,8 +447,11 @@ extension ToolExecutor {
         content: String?,
         fontName: String?,
         fontSize: Double?,
+        fontScale: Double?,
         color: TextStyle.RGBA?,
         alignment: TextStyle.Alignment?,
+        shadow: ParsedShadow?,
+        shadowColor: TextStyle.RGBA?,
         clipId: String,
         editor: EditorViewModel
     ) -> [String] {
@@ -460,13 +481,23 @@ extension ToolExecutor {
                 clip.transform = next
                 changed.append("transform")
             }
-            if content != nil || fontName != nil || fontSize != nil || color != nil || alignment != nil {
+            if content != nil || fontName != nil || fontSize != nil || fontScale != nil
+                || color != nil || alignment != nil || shadow != nil {
                 if let c = content { clip.textContent = c; changed.append("content") }
                 var style = clip.textStyle ?? TextStyle()
                 if let f = fontName  { style.fontName = f; changed.append("fontName") }
                 if let s = fontSize  { style.fontSize = s; changed.append("fontSize") }
+                if let s = fontScale { style.fontScale = s; changed.append("fontScale") }
                 if let c = color     { style.color = c; changed.append("color") }
                 if let a = alignment { style.alignment = a; changed.append("alignment") }
+                if let sh = shadow {
+                    if let e = sh.enabled { style.shadow.enabled = e }
+                    if let c = shadowColor { style.shadow.color = c }
+                    if let x = sh.offsetX { style.shadow.offsetX = x }
+                    if let y = sh.offsetY { style.shadow.offsetY = y }
+                    if let b = sh.blur { style.shadow.blur = b }
+                    changed.append("shadow")
+                }
                 clip.textStyle = style
             }
         }

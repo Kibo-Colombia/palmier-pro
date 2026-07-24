@@ -22,6 +22,7 @@ enum ToolName: String, CaseIterable, Sendable {
     case importLook = "import_look"
     case autoColor = "auto_color"
     case splitClip = "split_clip"
+    case setProjectSettings = "set_project_settings"
     case addTexts = "add_texts"
     case addCaptions = "add_captions"
     case generateVideo = "generate_video"
@@ -214,7 +215,19 @@ enum ToolDefinitions {
                     "content": ["type": "string", "description": "Text clips only. New text content."],
                     "fontName": ["type": "string", "description": "Text clips only. Font PostScript or family name."],
                     "fontSize": ["type": "number", "description": "Text clips only. Font size in canvas points."],
+                    "fontScale": ["type": "number", "description": "Text clips only. Multiplier on fontSize (default 1.0) — matches the inspector's scale handle."],
                     "color": ["type": "string", "description": "Text clips only. Hex '#RRGGBB' or '#RRGGBBAA'."],
+                    "shadow": [
+                        "type": "object",
+                        "description": "Text clips only. Partial merge over the clip's text shadow. Any combination of enabled, color (hex, alpha doubles as opacity), offsetX/offsetY (canvas points), blur.",
+                        "properties": [
+                            "enabled": ["type": "boolean"],
+                            "color": ["type": "string", "description": "Hex '#RRGGBB' or '#RRGGBBAA'."],
+                            "offsetX": ["type": "number"],
+                            "offsetY": ["type": "number"],
+                            "blur": ["type": "number"],
+                        ],
+                    ],
                     "alignment": ["type": "string", "enum": ["left", "center", "right"], "description": "Text clips only."],
                 ],
                 required: ["clipIds"]
@@ -404,6 +417,17 @@ enum ToolDefinitions {
                     "intensity": ["type": "number", "description": "Strength of the derived correction, neutral 1, range 0…1 (scales the grade's wet/dry)."],
                 ],
                 required: ["clipIds"]
+            )
+        ),
+        AgentTool(
+            name: .setProjectSettings,
+            description: "Sets the project's canvas resolution and/or fps — e.g. flip a landscape project to 1080×1920 for a vertical short. Same behavior as the in-app Project Settings dialog: on an fps change all clip frames/trims/keyframes rescale to keep real time; on a resolution change clips that were auto-fit refit to the new canvas aspect (manually transformed clips keep their transform). One undoable action. Omitted fields keep their current value; at least one must be provided.",
+            inputSchema: objectSchema(
+                properties: [
+                    "width": ["type": "integer", "description": "Canvas width in pixels."],
+                    "height": ["type": "integer", "description": "Canvas height in pixels."],
+                    "fps": ["type": "integer", "description": "Project frame rate."],
+                ]
             )
         ),
         AgentTool(

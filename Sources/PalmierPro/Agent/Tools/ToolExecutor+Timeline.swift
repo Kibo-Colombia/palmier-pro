@@ -49,6 +49,26 @@ extension ToolExecutor {
         return .ok(json)
     }
 
+    private static let setProjectSettingsAllowedKeys: Set<String> = ["width", "height", "fps"]
+
+    func setProjectSettings(_ editor: EditorViewModel, _ args: [String: Any]) throws -> ToolResult {
+        try validateUnknownKeys(args, allowed: Self.setProjectSettingsAllowedKeys, path: "set_project_settings")
+        guard args.int("width") != nil || args.int("height") != nil || args.int("fps") != nil else {
+            throw ToolError("Provide at least one of width, height, fps")
+        }
+        let width = args.int("width") ?? editor.timeline.width
+        let height = args.int("height") ?? editor.timeline.height
+        let fps = args.int("fps") ?? editor.timeline.fps
+        guard (16...8192).contains(width), (16...8192).contains(height) else {
+            throw ToolError("width/height must be between 16 and 8192")
+        }
+        guard (1...240).contains(fps) else {
+            throw ToolError("fps must be between 1 and 240")
+        }
+        editor.applyTimelineSettings(fps: fps, width: width, height: height)
+        return .ok("{\"ok\":true,\"width\":\(width),\"height\":\(height),\"fps\":\(fps)}")
+    }
+
     private static let trackDefaults: [String: Any] = ["muted": false, "hidden": false, "syncLocked": true]
 
     private static let clipDefaults: [String: Any] = {

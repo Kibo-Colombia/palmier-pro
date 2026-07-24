@@ -172,9 +172,15 @@ final class ExportService {
         let timelineCanvas = CGSize(width: timeline.width, height: timeline.height)
         let renderSize = resolution.renderSize(for: timelineCanvas)
 
+        // Text must be baked to image layers: GradeCompositor is a custom compositor,
+        // and AVFoundation ignores animationTool (the CATextLayer path) when one is set.
+        let (bakedTimeline, resolveURL) = try await MainActor.run {
+            try TextExportBaker.bake(timeline: timeline, resolveURL: { resolver.resolveURL(for: $0) })
+        }
+
         let result = try await CompositionBuilder.build(
-            timeline: timeline,
-            resolveURL: { resolver.resolveURL(for: $0) },
+            timeline: bakedTimeline,
+            resolveURL: resolveURL,
             renderSize: renderSize
         )
 
@@ -183,19 +189,7 @@ final class ExportService {
             throw ExportError.unsupportedPreset
         }
         session.audioMix = result.audioMix
-
-        // Bake text clips into the export via AVVideoCompositionCoreAnimationTool
-        let (parent, videoLayer) = TextLayerController.buildForExport(
-            timeline: timeline,
-            fps: timeline.fps,
-            renderSize: renderSize
-        )
-        let mutableVC = result.videoComposition.mutableCopy() as! AVMutableVideoComposition
-        mutableVC.animationTool = AVVideoCompositionCoreAnimationTool(
-            postProcessingAsVideoLayer: videoLayer,
-            in: parent
-        )
-        session.videoComposition = mutableVC
+        session.videoComposition = result.videoComposition
         return session
     }
 

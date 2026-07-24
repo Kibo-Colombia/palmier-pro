@@ -48,6 +48,7 @@ final class ToolExecutor {
             case .autoColor:        return try await autoColor(editor, args)
             case .splitClip:        return try splitClip(editor, args)
             case .setProjectSettings: return try setProjectSettings(editor, args)
+            case .exportVideo:   return try await exportVideo(editor, args)
             case .addTexts:      return try addTexts(editor, args)
             case .addCaptions:   return try await addCaptions(editor, args)
             case .generateVideo: return try generate(editor, args, type: .video)

@@ -23,6 +23,7 @@ enum ToolName: String, CaseIterable, Sendable {
     case autoColor = "auto_color"
     case splitClip = "split_clip"
     case setProjectSettings = "set_project_settings"
+    case exportVideo = "export_video"
     case addTexts = "add_texts"
     case addCaptions = "add_captions"
     case generateVideo = "generate_video"
@@ -428,6 +429,18 @@ enum ToolDefinitions {
                     "height": ["type": "integer", "description": "Canvas height in pixels."],
                     "fps": ["type": "integer", "description": "Project frame rate."],
                 ]
+            )
+        ),
+        AgentTool(
+            name: .exportVideo,
+            description: "Render the timeline to a video file — same pipeline as the Export button (grade, transitions, keyframes, text all baked in). Blocks until the render finishes and returns the output path; expect roughly real-time or faster for H.264 1080p. The output file is overwritten if it exists.",
+            inputSchema: objectSchema(
+                properties: [
+                    "path": ["type": "string", "description": "Absolute output file path. Extension should match the format (mp4 for h264/h265, mov for prores)."],
+                    "format": ["type": "string", "enum": ["h264", "h265", "prores"], "description": "Codec (default h264)."],
+                    "resolution": ["type": "string", "enum": ["720p", "1080p", "4K"], "description": "Short-side resolution (default 1080p; the long side follows the canvas aspect)."],
+                ],
+                required: ["path"]
             )
         ),
         AgentTool(

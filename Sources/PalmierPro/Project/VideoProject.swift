@@ -58,10 +58,17 @@ final class VideoProject: NSDocument {
             fileModificationDate = date
         }
 
-        snapshotTimeline = try? JSONEncoder().encode(editorViewModel.timeline)
-        snapshotManifest = try? JSONEncoder().encode(editorViewModel.mediaManifest)
-        snapshotGenerationLog = try? JSONEncoder().encode(editorViewModel.generationLog)
-        snapshotThumbnail = captureThumbnail()
+        do {
+            snapshotTimeline = try JSONEncoder().encode(editorViewModel.timeline)
+            snapshotManifest = try JSONEncoder().encode(editorViewModel.mediaManifest)
+            snapshotGenerationLog = try JSONEncoder().encode(editorViewModel.generationLog)
+        } catch {
+            completionHandler(error)
+            return
+        }
+        snapshotThumbnail = cachedThumbnail
+            ?? packageWrapper.fileWrappers?[Project.thumbnailFilename]?.regularFileContents
+        refreshThumbnail()
         snapshotChatSessionFiles = editorViewModel.agentService.sessions
             .filter { !$0.messages.isEmpty }
             .compactMap { session in
@@ -228,33 +235,26 @@ final class VideoProject: NSDocument {
     // MARK: - Thumbnail
 
     private var cachedThumbnail: Data?
+    private var thumbnailTask: Task<Void, Never>?
 
-    private func captureThumbnail() -> Data? {
-        if let cached = cachedThumbnail { return cached }
-        Log.project.debug("captureThumbnail begin")
-
-        for track in editorViewModel.timeline.tracks where track.type == .video {
-            for clip in track.clips {
-                guard let url = editorViewModel.mediaResolver.resolveURL(for: clip.mediaRef) else { continue }
-                let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
-                generator.maximumSize = CGSize(width: 320, height: 180)
-                generator.appliesPreferredTrackTransform = true
-                let time = CMTime(value: CMTimeValue(clip.trimStartFrame), timescale: CMTimeScale(editorViewModel.timeline.fps))
-                nonisolated(unsafe) var result: CGImage?
-                let semaphore = DispatchSemaphore(value: 0)
-                generator.generateCGImagesAsynchronously(forTimes: [NSValue(time: time)]) { _, image, _, _, _ in
-                    result = image
-                    semaphore.signal()
-                }
-                semaphore.wait()
-                if let cgImage = result {
-                    let rep = NSBitmapImageRep(cgImage: cgImage)
-                    cachedThumbnail = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.7])
-                    return cachedThumbnail
-                }
-            }
+    private func refreshThumbnail() {
+        guard thumbnailTask == nil else { return }
+        let timeline = editorViewModel.timeline
+        let candidate = timeline.tracks.filter { $0.type == .video && !$0.hidden }
+            .flatMap(\.clips).sorted { $0.startFrame < $1.startFrame }
+            .first { ($0.mediaType == .video || $0.mediaType == .image)
+                && editorViewModel.mediaResolver.resolveURL(for: $0.mediaRef) != nil }
+        guard let clip = candidate,
+              let url = editorViewModel.mediaResolver.resolveURL(for: clip.mediaRef) else { return }
+        thumbnailTask = Task { [weak self] in
+            let data = await Task.detached(priority: .utility) {
+                await ProjectThumbnailRenderer.render(url: url, type: clip.mediaType,
+                                                      frame: clip.trimStartFrame, fps: timeline.fps)
+            }.value
+            guard let self else { return }
+            self.cachedThumbnail = data ?? self.cachedThumbnail
+            self.thumbnailTask = nil
         }
-        return nil
     }
 
     // MARK: - Media restore

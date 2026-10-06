@@ -45,13 +45,12 @@ product needs to ask for action, lead with the action verb; when it reports stat
 ## Log milestones back to the monorepo brain (single source of truth)
 
 MiraiKibo's weekly/monthly cloud briefings clone ONLY `github.com/Kibo-Colombia/miraikibo` — this
-repo is invisible to them. The status doc `miraikibo/brain/04_lab/koma.md` is Koma's only voice in
+repo is invisible to them. The status doc `miraikibo/brain/functions/lab/koma.md` is Koma's only voice in
 those reports, so keeping it current is part of finishing a milestone here.
 
 When you complete a Koma milestone in this repo (feature shipped, capability proven, disposition
-changed), also update `/Users/nicurrego/workspace/miraikibo/brain/04_lab/koma.md` — a bullet or two
+changed), also update `/Users/nicurrego/workspace/miraikibo/brain/functions/lab/koma.md` — a bullet or two
 in its "Status — what's built" section (and "Where it's going" if the next step changed) — then
-commit it there by pathspec (`git add brain/04_lab/koma.md`) and push `main`, per that repo's
+commit it there by pathspec (`git add brain/functions/lab/koma.md`) and push `main`, per that repo's
 commit cadence. Build/technical detail stays here in `docs/`; koma.md gets the plain-English "what
 it can do now."
-

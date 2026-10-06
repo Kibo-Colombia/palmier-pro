@@ -34,6 +34,7 @@ fileprivate struct SetClipPropertiesInput: DecodableToolArgs {
     let trimEndFrame: Int?
     let speed: Double?
     let volume: Double?
+    let clearVolumeAutomation: Bool?
     let opacity: Double?
     let transform: ParsedTransform?
     let content: String?
@@ -47,14 +48,14 @@ fileprivate struct SetClipPropertiesInput: DecodableToolArgs {
     static let allowedKeys: Set<String> = [
         "clipIds",
         "durationFrames", "trimStartFrame", "trimEndFrame", "speed",
-        "volume", "opacity",
+        "volume", "clearVolumeAutomation", "opacity",
         "transform",
         "content", "fontName", "fontSize", "fontScale", "color", "alignment", "shadow",
     ]
 
     var hasAnyProperty: Bool {
         durationFrames != nil || trimStartFrame != nil || trimEndFrame != nil
-            || speed != nil || volume != nil || opacity != nil
+            || speed != nil || volume != nil || clearVolumeAutomation != nil || opacity != nil
             || transform != nil
             || content != nil || fontName != nil || fontSize != nil || fontScale != nil
             || color != nil || alignment != nil || shadow != nil
@@ -73,7 +74,8 @@ struct ParsedShadow: Decodable {
 fileprivate struct SetKeyframesInput: DecodableToolArgs {
     let clipId: String
     let property: String
-    static let allowedKeys: Set<String> = ["clipId", "property", "keyframes"]
+    let units: String?
+    static let allowedKeys: Set<String> = ["clipId", "property", "keyframes", "units"]
 }
 
 /// Partial transform shared between set_clip_properties and add_texts.
@@ -350,6 +352,12 @@ extension ToolExecutor {
         if let df = input.durationFrames, df < 1 {
             throw ToolError("durationFrames must be >= 1 (got \(df))")
         }
+        if let volume = input.volume, !(0...1).contains(volume) {
+            throw ToolError("volume must be between 0 and 1")
+        }
+        if let opacity = input.opacity, !(0...1).contains(opacity) {
+            throw ToolError("opacity must be between 0 and 1")
+        }
         let color = try parseColorHex(input.color, path: "set_clip_properties")
         let alignment = try parseAlignment(input.alignment, path: "set_clip_properties")
         let shadowColor = try parseColorHex(input.shadow?.color, path: "set_clip_properties.shadow")
@@ -385,7 +393,7 @@ extension ToolExecutor {
             : []
 
         let setActionName = input.clipIds.count == 1 ? "Set Clip Property (Agent)" : "Set Clip Properties (Agent)"
-        let summaries: [String] = withUndoGroup(editor, actionName: setActionName) {
+        let summaries: [String] = editor.withTimelineMutationBatch { withUndoGroup(editor, actionName: setActionName) {
             var summaries: [String] = []
             for id in input.clipIds {
                 let isText = clipTypes[id] == .text
@@ -395,6 +403,7 @@ extension ToolExecutor {
                     trimEndFrame: input.trimEndFrame,
                     speed: input.speed,
                     volume: input.volume,
+                    clearVolumeAutomation: input.clearVolumeAutomation ?? false,
                     opacity: input.opacity,
                     transform: input.transform,
                     content: isText ? input.content : nil,
@@ -430,7 +439,7 @@ extension ToolExecutor {
                 )
             }
             return summaries
-        }
+        } }
 
         let linkedNote = partners.isEmpty ? "" : " (+\(partners.count) linked)"
         return .ok("Updated \(input.clipIds.count) clip\(input.clipIds.count == 1 ? "" : "s")\(linkedNote): \(summaries.joined(separator: "; "))")
@@ -442,6 +451,7 @@ extension ToolExecutor {
         trimEndFrame: Int?,
         speed: Double?,
         volume: Double?,
+        clearVolumeAutomation: Bool = false,
         opacity: Double?,
         transform: ParsedTransform?,
         content: String?,
@@ -466,8 +476,8 @@ extension ToolExecutor {
             if let v = trimStartFrame { clip.trimStartFrame = v; changed.append("trimStartFrame") }
             if let v = trimEndFrame   { clip.trimEndFrame   = v; changed.append("trimEndFrame") }
             if let v = speed          { clip.speed          = v; changed.append("speed") }
-            // Setting a scalar clears any existing keyframe track on the same property.
-            if let v = volume         { clip.volume  = v; clip.volumeTrack  = nil; changed.append("volume") }
+            if let v = volume         { clip.volume  = v; changed.append("volume") }
+            if clearVolumeAutomation { clip.volumeTrack = nil; changed.append("clearVolumeAutomation") }
             if let v = opacity        { clip.opacity = v; clip.opacityTrack = nil; changed.append("opacity") }
             if let t = transform {
                 let cur = clip.transform
@@ -519,11 +529,14 @@ extension ToolExecutor {
         guard editor.findClip(id: input.clipId) != nil else {
             throw ToolError("Clip not found: \(input.clipId)")
         }
+        if input.units != nil, input.property != "volume" {
+            throw ToolError("units is only supported for volume keyframes")
+        }
 
         try withUndoGroup(editor, actionName: "Set Keyframes (Agent)") {
             switch input.property {
             case "volume":
-                let kfs = try Self.parseScalarKeyframes(rows, path: "keyframes")
+                let kfs = try Self.parseVolumeKeyframes(rows, units: input.units ?? "linear", durationFrames: editor.clipFor(id: input.clipId)!.durationFrames)
                 editor.commitClipProperty(clipId: input.clipId) { $0.volumeTrack = kfs.keyframes.isEmpty ? nil : kfs }
             case "opacity":
                 let kfs = try Self.parseScalarKeyframes(rows, path: "keyframes")
@@ -616,6 +629,22 @@ extension ToolExecutor {
 
     fileprivate static func parseScalarKeyframes(_ rows: [Any], path: String) throws -> KeyframeTrack<Double> {
         try parseKeyframes(rows, path: path, fieldNames: ["value"]) { $0[0] }
+    }
+
+    static func parseVolumeKeyframes(_ rows: [Any], units: String, durationFrames: Int) throws -> KeyframeTrack<Double> {
+        guard units == "linear" || units == "db" else { throw ToolError("Volume units must be linear or db") }
+        var track = try parseScalarKeyframes(rows, path: "keyframes")
+        for index in track.keyframes.indices {
+            let keyframe = track.keyframes[index]
+            guard keyframe.frame >= 0, keyframe.frame <= durationFrames else { throw ToolError("Volume keyframes must fit within the clip duration") }
+            if units == "linear" {
+                guard (0...1).contains(keyframe.value) else { throw ToolError("Linear volume keyframes must be between 0 and 1") }
+                track.keyframes[index].value = VolumeScale.dbFromLinear(keyframe.value)
+            } else {
+                guard (VolumeScale.floorDb...VolumeScale.ceilingDb).contains(keyframe.value) else { throw ToolError("dB volume keyframes must be between -60 and 15") }
+            }
+        }
+        return track
     }
 
     fileprivate static func parsePairKeyframes(_ rows: [Any], path: String) throws -> KeyframeTrack<AnimPair> {

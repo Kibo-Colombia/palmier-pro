@@ -52,6 +52,14 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Framewor
 cp "$BIN" "$APP/Contents/MacOS/Koma"
 cp "$RESOURCES/Info.plist" "$APP/Contents/Info.plist"
 
+BUILD_REVISION="$(git -C "$ROOT" rev-parse HEAD)"
+BUILD_DIRTY=false
+if [ -n "$(git -C "$ROOT" status --porcelain --untracked-files=normal)" ]; then
+  BUILD_DIRTY=true
+fi
+/usr/libexec/PlistBuddy -c "Add :KomaSourceRevision string $BUILD_REVISION" "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :KomaSourceDirty bool $BUILD_DIRTY" "$APP/Contents/Info.plist"
+
 if [ -n "$SENTRY_DSN" ]; then
   echo "==> Injecting SentryDSN into Info.plist"
   /usr/libexec/PlistBuddy -c "Delete :SentryDSN" "$APP/Contents/Info.plist" 2>/dev/null || true
@@ -79,6 +87,9 @@ cp -R "$SPARKLE_FW" "$APP/Contents/Frameworks/Sparkle.framework"
 
 # Flatten SwiftPM's resource bundle into the app's Resources tree.
 RES_BUNDLE="$(dirname "$BIN")/PalmierPro_PalmierPro.bundle"
+if [ -d "$RES_BUNDLE/Contents/Resources" ]; then
+  RES_BUNDLE="$RES_BUNDLE/Contents/Resources"
+fi
 if [ -d "$RES_BUNDLE/Fonts" ]; then
   cp -R "$RES_BUNDLE/Fonts" "$APP/Contents/Resources/"
 else

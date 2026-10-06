@@ -172,14 +172,34 @@ final class AppState {
 
     func openProject(at url: URL, register: Bool = true, options: ProjectOpenOptions = .init()) {
         do {
-            let doc = try VideoProject(contentsOf: url, ofType: VideoProject.typeIdentifier)
-            doc.makeWindowControllers()
-            doc.showWindows()
-            NSDocumentController.shared.addDocument(doc)
-            if register { ProjectRegistry.shared.register(url) }
+            let doc = try openProjectForAutomation(at: url, register: register)
             apply(options, to: doc.editorViewModel)
         } catch {
             NSAlert(error: error).runModal()
+        }
+    }
+
+    func openProjectForAutomation(at url: URL, register: Bool = true) throws -> VideoProject {
+        if let existing = NSDocumentController.shared.documents.compactMap({ $0 as? VideoProject })
+            .first(where: { Self.sameFile($0.fileURL, url) }) {
+            showEditor(for: existing)
+            return existing
+        }
+        let doc = try VideoProject(contentsOf: url, ofType: VideoProject.typeIdentifier)
+        if register { ProjectRegistry.shared.register(url) }
+        doc.makeWindowControllers()
+        NSDocumentController.shared.addDocument(doc)
+        showEditor(for: doc)
+        return doc
+    }
+
+    func saveProjectForAutomation(_ project: VideoProject) async throws {
+        guard let url = project.fileURL else { throw ToolError("Project has no file path. Create or open a saved project first.") }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            project.save(to: url, ofType: VideoProject.typeIdentifier, for: .saveOperation) { error in
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume() }
+            }
         }
     }
 

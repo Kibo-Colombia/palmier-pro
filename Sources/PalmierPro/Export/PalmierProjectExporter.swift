@@ -4,7 +4,7 @@ import Foundation
 /// into the new bundle's `media/` directory and rewritten to a project-relative source
 enum PalmierProjectExporter {
 
-    struct Report: Equatable {
+    struct Report: Codable, Equatable, Sendable {
         /// Entry ids that were `.external` and are now bundled.
         var collected: [String] = []
         /// Already-internal media files copied across.
@@ -14,7 +14,7 @@ enum PalmierProjectExporter {
         /// Total bytes copied into the new bundle.
         var totalBytes: Int64 = 0
 
-        struct Missing: Equatable { var id: String; var name: String }
+        struct Missing: Codable, Equatable, Sendable { var id: String; var name: String }
     }
 
     @discardableResult
@@ -24,10 +24,21 @@ enum PalmierProjectExporter {
         generationLog: GenerationLog,
         sourceProjectURL: URL?,
         to destURL: URL,
+        overwrite: Bool = true,
+        strictMissingMedia: Bool = false,
         progress: (@Sendable (Double) -> Void)? = nil
     ) throws -> Report {
         let fm = FileManager.default
-        let staging = fm.temporaryDirectory.appendingPathComponent("palmier-export-\(UUID().uuidString)", isDirectory: true)
+        if !overwrite && fm.fileExists(atPath: destURL.path) {
+            throw ToolError("Destination already exists: \(destURL.path). Set overwrite=true to replace it.")
+        }
+        let missing = missingMedia(in: manifest, projectURL: sourceProjectURL)
+        if strictMissingMedia && !missing.isEmpty {
+            throw ToolError("Missing media: \(missing.map(\.id).joined(separator: ", ")). Package was not written.")
+        }
+        try fm.createDirectory(at: destURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let staging = destURL.deletingLastPathComponent()
+            .appendingPathComponent(".palmier-export-\(UUID().uuidString)", isDirectory: true)
         let mediaDir = staging.appendingPathComponent(Project.mediaDirectoryName, isDirectory: true)
         try fm.createDirectory(at: mediaDir, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: staging) }
@@ -68,6 +79,9 @@ enum PalmierProjectExporter {
 
         var newManifest = manifest
         newManifest.entries = newEntries
+        if strictMissingMedia && !report.missing.isEmpty {
+            throw ToolError("Media disappeared during packaging: \(report.missing.map(\.id).joined(separator: ", ")).")
+        }
 
         let encoder = JSONEncoder()
         try encoder.encode(timeline).write(to: staging.appendingPathComponent(Project.timelineFilename))
@@ -80,18 +94,31 @@ enum PalmierProjectExporter {
             copyIfPresent(ChatSessionStore.dirName, from: sourceProjectURL, to: staging, fm: fm)
         }
 
-        if fm.fileExists(atPath: destURL.path) { try fm.removeItem(at: destURL) }
-        try fm.createDirectory(at: destURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try fm.moveItem(at: staging, to: destURL)
+        try ProjectAutomationFiles.commit(staging: staging, to: destURL, overwrite: overwrite)
         return report
     }
 
     // MARK: - Helpers
 
+    static func missingMedia(in manifest: MediaManifest, projectURL: URL?) -> [Report.Missing] {
+        manifest.entries.compactMap { entry in
+            guard let url = sourceURL(for: entry.source, projectURL: projectURL),
+                  FileManager.default.fileExists(atPath: url.path) else {
+                return Report.Missing(id: entry.id, name: entry.name)
+            }
+            return nil
+        }
+    }
+
     private static func sourceURL(for source: MediaSource, projectURL: URL?) -> URL? {
         switch source {
-        case .external(let path): URL(fileURLWithPath: path)
-        case .project(let rel): projectURL?.appendingPathComponent(rel)
+        case .external(let path): return URL(fileURLWithPath: path)
+        case .project(let rel):
+            guard let projectURL, !rel.hasPrefix("/") else { return nil }
+            let base = projectURL.standardizedFileURL.resolvingSymlinksInPath()
+            let url = base.appendingPathComponent(rel).standardizedFileURL.resolvingSymlinksInPath()
+            guard url.path.hasPrefix(base.path + "/") else { return nil }
+            return url
         }
     }
 

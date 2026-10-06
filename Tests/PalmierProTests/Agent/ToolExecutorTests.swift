@@ -974,7 +974,7 @@ struct ToolExecutorClipTests {
         #expect(audioClip.opacity == 1.0, "opacity is per-clip and must not propagate")
     }
 
-    @Test func setClipPropertiesScalarClearsExistingKeyframeTrack() async throws {
+    @Test func setClipPropertiesScalarPreservesExistingVolumeKeyframeTrack() async throws {
         let (h, clipId) = await setupClipForKeyframes()
         _ = await h.runRaw("set_keyframes", args: [
             "clipId": clipId, "property": "volume",
@@ -986,7 +986,9 @@ struct ToolExecutorClipTests {
         guard let loc = h.editor.findClip(id: clipId) else { Issue.record("clip gone"); return }
         let clip = h.editor.timeline.tracks[loc.trackIndex].clips[loc.clipIndex]
         #expect(clip.volume == 0.5)
-        #expect(clip.volumeTrack == nil)
+        #expect(clip.volumeTrack?.keyframes.count == 2)
+        #expect(clip.volumeTrack?.keyframes.first?.value == 0)
+        #expect(clip.volumeTrack?.keyframes.last?.value == VolumeScale.floorDb)
     }
 
     // MARK: - set_keyframes
@@ -1010,9 +1012,9 @@ struct ToolExecutorClipTests {
         guard let loc = h.editor.findClip(id: clipId) else { Issue.record("clip gone"); return }
         let kfs = h.editor.timeline.tracks[loc.trackIndex].clips[loc.clipIndex].volumeTrack?.keyframes ?? []
         #expect(kfs.count == 3)
-        #expect(kfs[0].frame == 0 && kfs[0].value == 1.0 && kfs[0].interpolationOut == .smooth)
-        #expect(kfs[1].frame == 30 && kfs[1].value == 0.0 && kfs[1].interpolationOut == .linear)
-        #expect(kfs[2].frame == 60 && kfs[2].value == 1.0)
+        #expect(kfs[0].frame == 0 && kfs[0].value == 0 && kfs[0].interpolationOut == .smooth)
+        #expect(kfs[1].frame == 30 && kfs[1].value == VolumeScale.floorDb && kfs[1].interpolationOut == .linear)
+        #expect(kfs[2].frame == 60 && kfs[2].value == 0)
     }
 
     @Test func setKeyframesClearsWhenEmpty() async throws {
@@ -1038,9 +1040,9 @@ struct ToolExecutorClipTests {
         guard let loc = h.editor.findClip(id: clipId) else { Issue.record("clip gone"); return }
         let kfs = h.editor.timeline.tracks[loc.trackIndex].clips[loc.clipIndex].volumeTrack?.keyframes ?? []
         #expect(kfs.map(\.frame) == [0, 30, 60])
-        #expect(kfs[0].value == 1.0)
-        #expect(kfs[1].value == 0.8, "duplicate frame 30 keeps the last value (last-write-wins)")
-        #expect(kfs[2].value == 0.3)
+        #expect(kfs[0].value == 0)
+        #expect(kfs[1].value == VolumeScale.dbFromLinear(0.8), "duplicate frame 30 keeps the last value (last-write-wins)")
+        #expect(kfs[2].value == VolumeScale.dbFromLinear(0.3))
     }
 
     @Test func setKeyframesRejectsNonFiniteValues() async throws {

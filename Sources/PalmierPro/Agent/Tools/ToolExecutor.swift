@@ -21,9 +21,24 @@ final class ToolExecutor {
         guard let tool = ToolName(rawValue: name) else {
             return .error("Unknown tool: \(name)")
         }
-        guard let editor else { return .error("Editor not available") }
         do {
             switch tool {
+            case .getCapabilities: return try getCapabilities(args)
+            case .createProject: return try await createProject(args)
+            case .openProject: return try await openProject(args)
+            case .getExportJob: return try getExportJob(args)
+            case .cancelExport: return try await cancelExport(args)
+            default: break
+            }
+            guard let editor else { return .error("Editor not available") }
+            switch tool {
+            case .saveProject: return try await saveProject(editor, args)
+            case .exportProjectPackage: return try await exportProjectPackage(editor, args)
+            case .startExport: return try startExport(editor, args)
+            case .applyEdit: return try applyEdit(editor, args)
+            case .setTrackProperties: return try setTrackProperties(editor, args)
+            case .getCapabilities, .createProject, .openProject, .getExportJob, .cancelExport:
+                throw ToolError("Unexpected project-independent dispatch")
             case .getTimeline:   return try getTimeline(editor, args)
             case .getMedia:      return try getMedia(editor)
             case .inspectMedia:  return try await inspectMedia(editor, args)
@@ -106,8 +121,8 @@ final class ToolExecutor {
     func withUndoGroup<T>(_ editor: EditorViewModel, actionName: String, _ work: () throws -> T) rethrows -> T {
         editor.undoManager?.beginUndoGrouping()
         defer {
-            editor.undoManager?.endUndoGrouping()
             editor.undoManager?.setActionName(actionName)
+            editor.undoManager?.endUndoGrouping()
         }
         return try work()
     }

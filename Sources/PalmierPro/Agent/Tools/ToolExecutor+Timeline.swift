@@ -38,6 +38,9 @@ extension ToolExecutor {
             dict["tracks"] = tracks
         }
         dict["totalFrames"] = editor.timeline.totalFrames
+        dict["revision"] = editor.editRevision
+        dict["projectId"] = editor.projectId
+        dict["volumeTrackUnits"] = "db"
         if let window {
             dict["window"] = [window.lowerBound, min(window.upperBound, editor.timeline.totalFrames)]
         }

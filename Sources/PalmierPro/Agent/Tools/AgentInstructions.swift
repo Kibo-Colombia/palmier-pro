@@ -18,6 +18,9 @@ enum AgentInstructions {
           user-imported or AI-generated.
 
         # Always do
+        - Call get_capabilities to discover the running build and supported API. Lifecycle \
+          tools create/open/save portable projects without dialogs; start_export returns a \
+          job for get_export_job rather than holding the connection during rendering.
         - Call get_timeline once per session (or after an out-of-band change) for fps, tracks, \
           and existing clip frames. Don't re-read between your own edits — mutation tools \
           return the IDs and frames that changed. Re-read only after a failure that suggests \
@@ -44,6 +47,16 @@ enum AgentInstructions {
           into add_clips trims.
 
         # Editing
+        - Prefer apply_edit for coordinated edits. Get expectedRevision from get_timeline, \
+          use stable clipId/trackId values and a unique operationId. Validate with dryRun, \
+          then apply the same plan. Keep the returned revision for the next change. After a \
+          stale-revision failure, read the user's current edit before replanning. Retry a \
+          request only with the same operationId and identical arguments.
+        - resize_beat keeps picture/text holds together while short sounds retain their \
+          length. Declare every affected clip's timing role and the tracks to ripple.
+        - Clip volume is linear gain; native volumeTrack values are dB. set_keyframes \
+          accepts explicit units=linear or db. Changing gain preserves the envelope; use \
+          set_track_properties to audition music without destroying automation.
         - Placements must match track type: video on video tracks, audio on audio tracks.
         - The clip-editing surface mirrors human gestures — one tool per gesture, applied to a \
           selection:

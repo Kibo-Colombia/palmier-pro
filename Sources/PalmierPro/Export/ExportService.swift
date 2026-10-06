@@ -1,5 +1,6 @@
 import AVFoundation
 import AppKit
+import ImageIO
 
 enum ExportFormat {
     case h264, h265, prores, xml
@@ -69,13 +70,19 @@ final class ExportService {
         }
     }
     var error: String?
+    private var activeSession: AVAssetExportSession?
+
+    func cancel() {
+        activeSession?.cancelExport()
+    }
 
     func export(
         timeline: Timeline,
         resolver: MediaResolver,
         format: ExportFormat,
         resolution: ExportResolution,
-        outputURL: URL
+        outputURL: URL,
+        strictSourceValidation: Bool = false
     ) async {
         if format == .xml {
             XMLExporter.export(timeline: timeline, resolver: resolver, outputURL: outputURL)
@@ -88,10 +95,14 @@ final class ExportService {
         error = nil
 
         do {
+            if strictSourceValidation { try await validateSources(timeline: timeline, resolver: resolver) }
             let session = try await makeExportSession(
                 timeline: timeline, resolver: resolver,
                 format: format, resolution: resolution
             )
+            try Task.checkCancellation()
+            activeSession = session
+            defer { activeSession = nil }
             guard let fileType = format.utType else { throw ExportError.invalidFormat }
 
             // AVAssetExportSession fails if the file already exists
@@ -194,6 +205,7 @@ final class ExportService {
     }
 
     private static func detailedMessage(for error: Error) -> String {
+        if let error = error as? ToolError { return error.message }
         let ns = error as NSError
         var message = ns.localizedDescription
         if let reason = ns.localizedFailureReason, !message.contains(reason) {
@@ -206,6 +218,36 @@ final class ExportService {
             current = e.userInfo[NSUnderlyingErrorKey] as? NSError
         }
         return "\(message) (\(codes.joined(separator: " → ")))"
+    }
+
+    private func validateSources(timeline: Timeline, resolver: MediaResolver) async throws {
+        var checked = Set<String>()
+        for track in timeline.tracks where !track.hidden && !track.muted {
+            for clip in track.clips where clip.mediaType.buildsCompositionTrack {
+                try Task.checkCancellation()
+                let key = clip.mediaRef + ":" + clip.mediaType.rawValue
+                guard checked.insert(key).inserted else { continue }
+                guard let url = resolver.resolveURL(for: clip.mediaRef) else {
+                    throw ToolError("Missing source for clip \(clip.id): \(clip.mediaRef)")
+                }
+                if clip.mediaType == .image {
+                    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                          CGImageSourceCreateImageAtIndex(source, 0, nil) != nil else {
+                        throw ToolError("Unreadable image for clip \(clip.id): \(url.lastPathComponent)")
+                    }
+                } else if clip.mediaType == .lottie {
+                    _ = try await LottieVideoGenerator.lottieVideo(for: url, mediaRef: clip.mediaRef,
+                        size: CGSize(width: timeline.width, height: timeline.height))
+                } else {
+                    let asset = AVURLAsset(url: url)
+                    let type: AVMediaType = clip.mediaType == .audio ? .audio : .video
+                    let tracks = try await asset.loadTracks(withMediaType: type)
+                    guard !tracks.isEmpty else {
+                        throw ToolError("Source has no \(type.rawValue) track for clip \(clip.id): \(url.lastPathComponent)")
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Export preset mapping

@@ -1,47 +1,58 @@
 import Foundation
 
 extension ToolExecutor {
-    private static let exportVideoAllowedKeys: Set<String> = ["path", "format", "resolution"]
+    func startExport(_ editor: EditorViewModel, _ args: [String: Any]) throws -> ToolResult {
+        let input: ExportVideoArgs = try decodeToolArgs(args, path: "start_export")
+        try checkProjectRevision(editor, expected: input.expectedRevision)
+        let receipt = try ExportJobService.shared.start(
+            timeline: editor.timeline, manifest: editor.mediaManifest, projectURL: editor.projectURL,
+            path: input.path, formatName: input.format ?? "h264", resolutionName: input.resolution ?? "1080p",
+            overwrite: input.overwrite ?? false, idempotencyKey: input.idempotencyKey)
+        return try exportReceipt(receipt)
+    }
+
+    func getExportJob(_ args: [String: Any]) throws -> ToolResult {
+        let input: ExportJobArgs = try decodeToolArgs(args, path: "get_export_job")
+        return try exportReceipt(ExportJobService.shared.receipt(jobId: input.jobId))
+    }
+
+    func cancelExport(_ args: [String: Any]) throws -> ToolResult {
+        let input: ExportJobArgs = try decodeToolArgs(args, path: "cancel_export")
+        return try exportReceipt(ExportJobService.shared.cancel(jobId: input.jobId))
+    }
 
     func exportVideo(_ editor: EditorViewModel, _ args: [String: Any]) async throws -> ToolResult {
-        try validateUnknownKeys(args, allowed: Self.exportVideoAllowedKeys, path: "export_video")
-        guard let path = args.string("path"), path.hasPrefix("/") else {
-            throw ToolError("Missing required field 'path' (absolute output file path)")
-        }
-
-        let format: ExportFormat
-        switch args.string("format") ?? "h264" {
-        case "h264": format = .h264
-        case "h265": format = .h265
-        case "prores": format = .prores
-        case let other: throw ToolError("Unknown format '\(other)' — use h264, h265, or prores")
-        }
-
-        let resolution: ExportResolution
-        switch args.string("resolution") ?? "1080p" {
-        case "720p": resolution = .r720p
-        case "1080p": resolution = .r1080p
-        case "4K", "4k": resolution = .r4k
-        case let other: throw ToolError("Unknown resolution '\(other)' — use 720p, 1080p, or 4K")
-        }
-
-        let outputURL = URL(fileURLWithPath: path)
-        try? FileManager.default.createDirectory(
-            at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-
-        let service = ExportService()
-        await service.export(
-            timeline: editor.timeline,
-            resolver: editor.mediaResolver,
-            format: format,
-            resolution: resolution,
-            outputURL: outputURL
-        )
-        if let error = service.error {
-            throw ToolError("Export failed: \(error)")
-        }
-        let sizeMB = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int)
-            .flatMap { $0.map { Double($0) / 1_048_576 } } ?? 0
-        return .ok("{\"ok\":true,\"path\":\"\(path)\",\"sizeMB\":\(Int(sizeMB.rounded()))}")
+        let input: ExportVideoArgs = try decodeToolArgs(args, path: "export_video")
+        try checkProjectRevision(editor, expected: input.expectedRevision)
+        let job = try ExportJobService.shared.start(
+            timeline: editor.timeline, manifest: editor.mediaManifest, projectURL: editor.projectURL,
+            path: input.path, formatName: input.format ?? "h264", resolutionName: input.resolution ?? "1080p",
+            overwrite: input.overwrite ?? false, idempotencyKey: input.idempotencyKey)
+        let receipt = try await ExportJobService.shared.wait(jobId: job.jobId)
+        guard receipt.state == .completed else { throw ToolError(receipt.error ?? "Export \(receipt.state.rawValue)") }
+        return try exportReceipt(receipt)
     }
+
+    private func exportReceipt(_ receipt: ExportJobReceipt) throws -> ToolResult {
+        let data = try JSONEncoder().encode(receipt)
+        var object = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        object["ok"] = receipt.state != .failed
+        object["durationSeconds"] = Double(receipt.totalFrames) / Double(receipt.fps)
+        return .ok(Self.jsonString(object)!)
+    }
+}
+
+private struct ExportVideoArgs: DecodableToolArgs {
+    static let allowedKeys: Set<String> = ["path", "format", "resolution", "overwrite", "expectedRevision", "idempotencyKey"]
+    let path: String
+    let format: String?
+    let resolution: String?
+    let overwrite: Bool?
+    let expectedRevision: String?
+    let idempotencyKey: String?
+}
+
+private struct ExportJobArgs: DecodableToolArgs {
+    static let allowedKeys: Set<String> = ["jobId"]
+    let jobId: String
 }

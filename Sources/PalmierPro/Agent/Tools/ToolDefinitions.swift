@@ -2,6 +2,16 @@ import Foundation
 import MCP
 
 enum ToolName: String, CaseIterable, Sendable {
+    case getCapabilities = "get_capabilities"
+    case createProject = "create_project"
+    case openProject = "open_project"
+    case saveProject = "save_project"
+    case exportProjectPackage = "export_project_package"
+    case startExport = "start_export"
+    case getExportJob = "get_export_job"
+    case cancelExport = "cancel_export"
+    case applyEdit = "apply_edit"
+    case setTrackProperties = "set_track_properties"
     case getTimeline = "get_timeline"
     case getMedia = "get_media"
     case addClips = "add_clips"
@@ -59,7 +69,7 @@ enum ToolDefinitions {
     static let all: [AgentTool] = [
         AgentTool(
             name: .getTimeline,
-            description: "Always call at the start of a session. Returns project settings (fps, resolution, totalFrames), track list with types and order, all clips with their frames and properties, and canGenerate (if false, generation/upscale tools will fail — tell the user to sign in to Palmier and subscribe before attempting them). The clipId/trackId values here are what every other tool accepts.\n\nClip and track fields equal to their defaults are omitted: mediaType 'video', sourceClipType = mediaType, speed 1, volume 1, opacity 1, trims/fades 0, identity transform/crop, default textStyle, track muted/hidden false. Text clips never report trims (no source media).\n\nCaption clips (sharing a captionGroupId) come back per track as captionGroups instead of clips entries: properties common to the group are hoisted into 'shared' and each clip is a [clipId, startFrame, durationFrames, text] row (caption box width/height are auto-fit per text and omitted). Rows are capped at 200 per group — when clipCount exceeds the rows shown, page with startFrame/endFrame. Caption clips whose properties deviate from the group appear individually in clips.",
+            description: "Always call at the start of a session. Returns revision (SHA256 of the full timeline and media manifest), projectId, project settings (fps, resolution, totalFrames), track list with types and order, all clips with their frames and properties, and canGenerate (if false, generation/upscale tools will fail — tell the user to sign in to Palmier and subscribe before attempting them). The clipId/trackId values here are what every other tool accepts.\n\nClip and track fields equal to their defaults are omitted: mediaType 'video', sourceClipType = mediaType, speed 1, volume 1, opacity 1, trims/fades 0, identity transform/crop, default textStyle, track muted/hidden false. Text clips never report trims (no source media).\n\nCaption clips (sharing a captionGroupId) come back per track as captionGroups instead of clips entries: properties common to the group are hoisted into 'shared' and each clip is a [clipId, startFrame, durationFrames, text] row (caption box width/height are auto-fit per text and omitted). Rows are capped at 200 per group — when clipCount exceeds the rows shown, page with startFrame/endFrame. Caption clips whose properties deviate from the group appear individually in clips.",
             inputSchema: objectSchema(
                 properties: [
                     "startFrame": ["type": "integer", "description": "Optional. Window start (inclusive); only clips intersecting [startFrame, endFrame) are returned. Tracks report totalClips when the window hides some."],
@@ -187,7 +197,7 @@ enum ToolDefinitions {
         ),
         AgentTool(
             name: .setClipProperties,
-            description: "Apply the same property values to one or more clips in a single undoable action. Pass any combination of durationFrames, trimStartFrame, trimEndFrame, speed, volume, opacity, transform, or — for text clips only — content, fontName, fontSize, color, alignment. All values are applied to every clip in clipIds; for per-clip differences, make separate calls. trimStartFrame/trimEndFrame are offsets from the source media, not the timeline. speed 1.0 is normal, <1.0 slows (clip gets longer on the timeline), >1.0 speeds up. volume and opacity are 0.0–1.0. transform uses 0–1 normalized canvas coords, partial merge (pass only centerY to reposition vertically); flipHorizontal/flipVertical mirror the clip across the corresponding axis (no effect on text clips). When a text clip's content or font changes without an explicit transform, the bounding box auto-refits. Text-only fields with any non-text clip in clipIds are rejected.\n\nFor moves and start-frame changes, use move_clips. For animated values (keyframes), use set_keyframes — setting volume or opacity here clears any existing keyframe track on that property.\n\nTiming changes (durationFrames, trimStartFrame, trimEndFrame, speed) on a linked clip carry over to its linked partner so audio/video stay in sync — same as the timeline UI. Per-clip fields (volume, opacity, transform, text*) don't propagate. trim and speed are skipped for text partners.",
+            description: "Apply the same property values to one or more clips in a single undoable action. Pass any combination of durationFrames, trimStartFrame, trimEndFrame, speed, volume, opacity, transform, or — for text clips only — content, fontName, fontSize, color, alignment. All values are applied to every clip in clipIds; for per-clip differences, make separate calls. trimStartFrame/trimEndFrame are offsets from the source media, not the timeline. speed 1.0 is normal, <1.0 slows (clip gets longer on the timeline), >1.0 speeds up. volume and opacity are 0.0–1.0. transform uses 0–1 normalized canvas coords, partial merge (pass only centerY to reposition vertically); flipHorizontal/flipVertical mirror the clip across the corresponding axis (no effect on text clips). When a text clip's content or font changes without an explicit transform, the bounding box auto-refits. Text-only fields with any non-text clip in clipIds are rejected.\n\nFor moves and start-frame changes, use move_clips. For animated values (keyframes), use set_keyframes — setting volume preserves its existing automation; clearVolumeAutomation explicitly removes it. Setting opacity clears its existing opacity keyframes.\n\nTiming changes (durationFrames, trimStartFrame, trimEndFrame, speed) on a linked clip carry over to its linked partner so audio/video stay in sync — same as the timeline UI. Per-clip fields (volume, opacity, transform, text*) don't propagate. trim and speed are skipped for text partners.",
             inputSchema: objectSchema(
                 properties: [
                     "clipIds": [
@@ -199,7 +209,8 @@ enum ToolDefinitions {
                     "trimStartFrame": ["type": "integer", "description": "Frames to trim from the start of the source media."],
                     "trimEndFrame": ["type": "integer", "description": "Frames to trim from the end of the source media."],
                     "speed": ["type": "number", "description": "Playback speed multiplier (default 1.0)."],
-                    "volume": ["type": "number", "description": "Volume 0.0-1.0. Clears any existing volume keyframes."],
+                    "volume": ["type": "number", "description": "Linear gain 0.0-1.0, multiplied by the existing volume envelope."],
+                    "clearVolumeAutomation": ["type": "boolean", "description": "Explicitly remove the volume envelope. Default false."],
                     "opacity": ["type": "number", "description": "Opacity 0.0-1.0. Clears any existing opacity keyframes."],
                     "transform": [
                         "type": "object",
@@ -236,7 +247,7 @@ enum ToolDefinitions {
         ),
         AgentTool(
             name: .setKeyframes,
-            description: "Set animated keyframes on one property of one clip. Replaces the existing keyframe track for that property (pass an empty array to clear). Frames are CLIP-RELATIVE offsets (0 = first frame of the clip), so keyframes follow the clip when it moves. Rows are sorted by frame internally and the LAST row for any duplicate frame wins. Values must be finite numbers. Each row is `[frame, ...values, interp?]` where interp ∈ {linear, hold, smooth} (default smooth).\n\nProperties and their value layouts:\n  • volume `[frame, value]` — value 0.0–1.0\n  • opacity `[frame, value]` — value 0.0–1.0\n  • rotation `[frame, degrees]` — clockwise degrees\n  • position `[frame, topLeftX, topLeftY]` — TOP-LEFT corner in 0–1 normalized canvas coords. NOT the center. (Default static transform centers a full-canvas clip, so top-left of the static is (0, 0); a centered half-size clip has top-left (0.25, 0.25).)\n  • scale `[frame, width, height]` — clip's normalized width and height in 0–1 canvas coords (1.0 = fills the canvas axis). NOT a scale factor.\n  • crop `[frame, top, right, bottom, left]` — side insets in 0–1 of the source media.\n  • grade `[frame, {channels}, interp?]` — the value is an OBJECT with set_grade's channel vocabulary (exposure, contrast, hsl, curves, wheels, …), merged over the clip's current static grade; unspecified channels hold their static value. Example flash-to-warm: [[0, {}], [12, {\"exposure\": 1.5, \"temperature\": 40}], [24, {}]].\n  • mask `[frame, {fields}, interp?]` — OBJECT rows with set_mask's field vocabulary, merged over the static mask (shape/invert hold; scalars animate). Example sweeping reveal: [[0, {\"centerX\": -0.5}], [30, {\"centerX\": 1.5}]].\n\nMotion keyframes (position/scale/rotation) override the static `transform` value when active; grade keyframes override the static grade the same way.",
+            description: "Set animated keyframes on one property of one clip. Replaces the existing keyframe track for that property (pass an empty array to clear). Frames are CLIP-RELATIVE offsets (0 = first frame of the clip), so keyframes follow the clip when it moves. Rows are sorted by frame internally and the LAST row for any duplicate frame wins. Values must be finite numbers. Each row is `[frame, ...values, interp?]` where interp ∈ {linear, hold, smooth} (default smooth).\n\nProperties and their value layouts:\n  • volume `[frame, value]` — linear gain by default; units=\"db\" accepts −60 through +15 dB. Linear zero stores −60 dB (silence). Native project and get_timeline volumeTrack values are dB.\n  • opacity `[frame, value]` — value 0.0–1.0\n  • rotation `[frame, degrees]` — clockwise degrees\n  • position `[frame, topLeftX, topLeftY]` — TOP-LEFT corner in 0–1 normalized canvas coords. NOT the center. (Default static transform centers a full-canvas clip, so top-left of the static is (0, 0); a centered half-size clip has top-left (0.25, 0.25).)\n  • scale `[frame, width, height]` — clip's normalized width and height in 0–1 canvas coords (1.0 = fills the canvas axis). NOT a scale factor.\n  • crop `[frame, top, right, bottom, left]` — side insets in 0–1 of the source media.\n  • grade `[frame, {channels}, interp?]` — the value is an OBJECT with set_grade's channel vocabulary (exposure, contrast, hsl, curves, wheels, …), merged over the clip's current static grade; unspecified channels hold their static value. Example flash-to-warm: [[0, {}], [12, {\"exposure\": 1.5, \"temperature\": 40}], [24, {}]].\n  • mask `[frame, {fields}, interp?]` — OBJECT rows with set_mask's field vocabulary, merged over the static mask (shape/invert hold; scalars animate). Example sweeping reveal: [[0, {\"centerX\": -0.5}], [30, {\"centerX\": 1.5}]].\n\nMotion keyframes (position/scale/rotation) override the static `transform` value when active; grade keyframes override the static grade the same way.",
             inputSchema: objectSchema(
                 properties: [
                     "clipId": ["type": "string", "description": "The clip ID."],
@@ -245,6 +256,7 @@ enum ToolDefinitions {
                         "enum": ["volume", "opacity", "rotation", "position", "scale", "crop", "grade", "mask"],
                         "description": "Which property's keyframe track to set.",
                     ],
+                    "units": ["type": "string", "enum": ["linear", "db"], "description": "Volume only. Default linear; native volumeTrack always stores dB."],
                     "keyframes": [
                         "type": "array",
                         "description": "Replacement keyframe rows. Empty array clears the track. Row shape depends on property — see tool description.",
@@ -433,12 +445,15 @@ enum ToolDefinitions {
         ),
         AgentTool(
             name: .exportVideo,
-            description: "Render the timeline to a video file — same pipeline as the Export button (grade, transitions, keyframes, text all baked in). Blocks until the render finishes and returns the output path; expect roughly real-time or faster for H.264 1080p. The output file is overwritten if it exists.",
+            description: "Render the timeline through the native export pipeline, including text and keyframes. Waits for completion and returns an export-job receipt. For long renders use start_export and get_export_job. Existing output is rejected unless overwrite=true; idempotencyKey allows safe retries with identical arguments.",
             inputSchema: objectSchema(
                 properties: [
                     "path": ["type": "string", "description": "Absolute output file path. Extension should match the format (mp4 for h264/h265, mov for prores)."],
                     "format": ["type": "string", "enum": ["h264", "h265", "prores"], "description": "Codec (default h264)."],
                     "resolution": ["type": "string", "enum": ["720p", "1080p", "4K"], "description": "Short-side resolution (default 1080p; the long side follows the canvas aspect)."],
+                    "overwrite": ["type": "boolean", "description": "Replace an existing output only when explicitly true."],
+                    "expectedRevision": ["type": "string", "description": "Revision from get_timeline."],
+                    "idempotencyKey": ["type": "string", "description": "Reuse only for the identical export request."],
                 ],
                 required: ["path"]
             )
@@ -811,7 +826,7 @@ enum ToolDefinitions {
                 ]
             )
         ),
-    ]
+    ] + AutomationToolDefinitions.all
 
     private static func objectSchema(
         properties: [String: [String: Any]] = [:],

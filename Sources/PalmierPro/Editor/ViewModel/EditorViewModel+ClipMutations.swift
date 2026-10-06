@@ -335,6 +335,10 @@ extension EditorViewModel {
         }
         modify(&clip)
         timeline.tracks[loc.trackIndex].clips[loc.clipIndex] = clip
+        if timelineMutationBatchDepth > 0 {
+            notifyTimelineChanged()
+            return
+        }
         // Text renders via CATextLayer overlay — skip the composition path.
         if clip.mediaType == .text {
             videoEngine?.syncTextLayers()
@@ -414,7 +418,7 @@ extension EditorViewModel {
         modify(&clip)
         timeline.tracks[loc.trackIndex].clips[loc.clipIndex] = clip
         registerClipPropertySwap(clipId: clipId, undoTarget: before, redoTarget: clip)
-        if clip.mediaType == .text {
+        if clip.mediaType == .text, timelineMutationBatchDepth == 0 {
             videoEngine?.syncTextLayers()
         } else {
             notifyTimelineChanged()

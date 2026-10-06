@@ -86,6 +86,9 @@ final class EditorViewModel {
     var canvasOffset: CGSize = .zero
     var timelineVisibleWidth: Double = 0
     var timelineRenderRevision: Int = 0
+    var editReceipts: [String: TimelineEditReceipt] = [:]
+    var timelineMutationBatchDepth: Int = 0
+    var timelineMutationBatchNeedsRebuild: Bool = false
     var isScrubbing: Bool = false
     var toolMode: ToolMode = .pointer
     var showExportDialog: Bool = false
@@ -288,6 +291,10 @@ final class EditorViewModel {
     var pendingRebuildTask: Task<Void, Never>?
 
     func notifyTimelineChanged() {
+        if timelineMutationBatchDepth > 0 {
+            timelineMutationBatchNeedsRebuild = true
+            return
+        }
         pendingRebuildTask?.cancel()
         pendingRebuildTask = nil
         if isPlaying {
@@ -299,6 +306,10 @@ final class EditorViewModel {
 
     /// Coalesce rapid rebuilds. An immediate `notifyTimelineChanged` cancels any pending debounced one.
     func notifyTimelineChangedDebounced(debounce: Duration = .milliseconds(120)) {
+        if timelineMutationBatchDepth > 0 {
+            timelineMutationBatchNeedsRebuild = true
+            return
+        }
         pendingRebuildTask?.cancel()
         pendingRebuildTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: debounce)

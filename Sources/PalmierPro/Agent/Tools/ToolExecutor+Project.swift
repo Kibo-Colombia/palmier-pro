@@ -94,16 +94,16 @@ extension ToolExecutor {
     }
 
     private func rejectOpenDestination(_ url: URL) throws {
-        let resolved = url.standardizedFileURL.resolvingSymlinksInPath()
+        let path = ProjectRegistry.identityPath(url)
         if NSDocumentController.shared.documents.compactMap({ $0 as? VideoProject })
-            .contains(where: { $0.fileURL?.standardizedFileURL.resolvingSymlinksInPath() == resolved }) {
+            .contains(where: { $0.fileURL.map(ProjectRegistry.identityPath) == path }) {
             throw ToolError("Destination is an open project. Save it or choose another path.")
         }
     }
 
     private func automationProjectId(_ document: VideoProject) -> String {
         document.editorViewModel.projectId ?? document.fileURL.flatMap { url in
-            ProjectRegistry.shared.entries.first { $0.url.standardizedFileURL == url.standardizedFileURL }?.id.uuidString
+            ProjectRegistry.shared.entry(for: url)?.id.uuidString
         } ?? document.fileURL?.standardizedFileURL.path ?? document.displayName
     }
 

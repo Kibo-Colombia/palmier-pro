@@ -14,7 +14,7 @@ Use `get_capabilities` before editing to identify the running build and supporte
 
 Dimensions are 16–8192 pixels and frame rates are 1–240 fps. New projects default to 1920×1080 at 30 fps. Set 1080×1920 explicitly for vertical work. Readiness distinguishes a decoded document (`documentReady`) from a document whose manifest sources all exist (`mediaReady`). `ready` requires both. Preview generation and indexing can continue asynchronously.
 
-Project identity comes from the existing native project registry. Revisions hash the timeline and media manifest using the same contract as `apply_edit`. Pass both identity and revision when a save must target the project you inspected. A save receipt reports the disk snapshot separately from a later edit made while saving.
+Project identity comes from the existing native project registry. Registry lookup uses the canonical file path, so file URLs, package directory URLs and symlink aliases find the same UUID. Revisions hash the timeline and media manifest using the same contract as `apply_edit`. Pass both identity and revision when a save must target the project you inspected. A save receipt reports the disk snapshot separately from a later edit made while saving.
 
 Exports default to H.264, 1080p short side. H.265, ProRes, 720p and 4K are supported. The long side follows the project aspect ratio. Existing output paths are rejected unless `overwrite: true` is explicit, including for the synchronous `export_video` tool. An overwrite becomes visible only after a successful export; cancellation or failure preserves the previous file.
 

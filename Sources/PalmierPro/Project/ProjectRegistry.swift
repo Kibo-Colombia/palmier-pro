@@ -33,11 +33,23 @@ final class ProjectRegistry {
         load()
     }
 
+    nonisolated static func identityPath(_ url: URL) -> String {
+        var path = url.standardizedFileURL.resolvingSymlinksInPath().path
+        while path.count > 1 && path.hasSuffix("/") { path.removeLast() }
+        return path
+    }
+
+    func entry(for url: URL) -> ProjectEntry? {
+        let path = Self.identityPath(url)
+        return entries.first { Self.identityPath($0.url) == path }
+    }
+
     // MARK: - Mutations
 
     func register(_ url: URL) {
         let resolved = url.standardizedFileURL
-        if let index = entries.firstIndex(where: { $0.url.standardizedFileURL == resolved }) {
+        let path = Self.identityPath(resolved)
+        if let index = entries.firstIndex(where: { Self.identityPath($0.url) == path }) {
             entries[index].lastOpenedDate = Date()
         } else {
             entries.append(ProjectEntry(id: UUID(), url: resolved, createdDate: Date(), lastOpenedDate: Date()))
@@ -46,8 +58,8 @@ final class ProjectRegistry {
     }
 
     func remove(_ url: URL) {
-        let resolved = url.standardizedFileURL
-        entries.removeAll { $0.url.standardizedFileURL == resolved }
+        let path = Self.identityPath(url)
+        entries.removeAll { Self.identityPath($0.url) == path }
         save()
     }
 
@@ -61,8 +73,8 @@ final class ProjectRegistry {
     }
 
     func updateURL(from oldURL: URL, to newURL: URL) {
-        let resolvedOld = oldURL.standardizedFileURL
-        if let index = entries.firstIndex(where: { $0.url.standardizedFileURL == resolvedOld }) {
+        let oldPath = Self.identityPath(oldURL)
+        if let index = entries.firstIndex(where: { Self.identityPath($0.url) == oldPath }) {
             entries[index].url = newURL.standardizedFileURL
             entries[index].lastOpenedDate = Date()
             save()
@@ -84,7 +96,7 @@ final class ProjectRegistry {
 
         for fileURL in contents where fileURL.pathExtension == Project.fileExtension {
             let resolved = fileURL.standardizedFileURL
-            guard !entries.contains(where: { $0.url.standardizedFileURL == resolved }) else { continue }
+            guard entry(for: resolved) == nil else { continue }
             let modDate = (try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
             entries.append(ProjectEntry(id: UUID(), url: resolved, createdDate: modDate, lastOpenedDate: modDate))
         }

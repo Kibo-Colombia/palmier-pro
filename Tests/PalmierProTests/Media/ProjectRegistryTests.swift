@@ -129,6 +129,67 @@ struct ProjectRegistryTests {
         #expect(second.entries.count == 1, "registry should reload from disk")
     }
 
+    @Test func packageDirectoryAndFileURLPreserveIdentityAcrossCreationAndReopen() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("registry-package-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+        let storage = root.appendingPathComponent("registry.json")
+        let path = root.appendingPathComponent("Garden.palmier").path
+        let fileURL = URL(fileURLWithPath: path, isDirectory: false)
+        let directoryURL = URL(fileURLWithPath: path, isDirectory: true)
+        let first = ProjectRegistry(fileURL: storage)
+        first.register(fileURL)
+        let id = try #require(first.entry(for: fileURL)).id
+        try fm.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        first.register(directoryURL)
+        #expect(first.entries.count == 1)
+        #expect(first.entry(for: directoryURL)?.id == id)
+        let reopened = ProjectRegistry(fileURL: storage)
+        #expect(reopened.entry(for: fileURL)?.id == id)
+        #expect(reopened.entry(for: directoryURL)?.id == id)
+    }
+
+    @Test func movingPackageUsingDirectoryURLPreservesRegisteredUUID() throws {
+        let reg = makeRegistry()
+        let old = makeProjectURL("Old")
+        let directoryOld = URL(fileURLWithPath: old.path, isDirectory: true)
+        let new = makeProjectURL("New")
+        let directoryNew = URL(fileURLWithPath: new.path, isDirectory: true)
+        reg.register(old)
+        let id = try #require(reg.entry(for: old)).id
+        reg.updateURL(from: directoryOld, to: directoryNew)
+        #expect(reg.entry(for: old) == nil)
+        #expect(reg.entry(for: new)?.id == id)
+        #expect(reg.entry(for: directoryNew)?.id == id)
+    }
+
+    @Test func removeDirectoryURLFindsEntryRegisteredAsFileURL() {
+        let reg = makeRegistry()
+        let url = makeProjectURL()
+        reg.register(url)
+        reg.remove(URL(fileURLWithPath: url.path, isDirectory: true))
+        #expect(reg.entries.isEmpty)
+    }
+
+    @Test func symlinkAliasAndPackageURLShareRegisteredIdentity() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("registry-alias-\(UUID().uuidString)")
+        let package = root.appendingPathComponent("Garden.palmier", isDirectory: true)
+        try fm.createDirectory(at: package, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+        let alias = root.appendingPathComponent("Alias.palmier", isDirectory: true)
+        try fm.createSymbolicLink(at: alias, withDestinationURL: package)
+        let reg = ProjectRegistry(fileURL: root.appendingPathComponent("registry.json"))
+        reg.register(package)
+        let id = try #require(reg.entry(for: package)).id
+        reg.register(alias)
+        #expect(reg.entries.count == 1)
+        #expect(reg.entry(for: alias)?.id == id)
+        reg.remove(alias)
+        #expect(reg.entries.isEmpty)
+    }
+
     // MARK: - ProjectEntry
 
     @Test func projectEntryDerivesNameFromURL() {

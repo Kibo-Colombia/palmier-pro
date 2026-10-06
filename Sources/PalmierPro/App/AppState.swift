@@ -109,7 +109,7 @@ final class AppState {
 
     private static func sameFile(_ lhs: URL?, _ rhs: URL) -> Bool {
         guard let lhs else { return false }
-        return lhs.standardizedFileURL.path == rhs.standardizedFileURL.path
+        return ProjectRegistry.identityPath(lhs) == ProjectRegistry.identityPath(rhs)
     }
 
     // MARK: - Project lifecycle

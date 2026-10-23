@@ -54,6 +54,7 @@ final class VideoEngine {
 
     func pause() {
         editor?.isPlaying = false
+        editor?.playbackStopFrame = nil
         player.pause()
     }
 
@@ -295,6 +296,7 @@ final class VideoEngine {
                 let frame = secondsToFrame(seconds: time.seconds, fps: editor.timeline.fps)
                 if editor.activePreviewTab == .timeline {
                     editor.currentFrame = frame
+                    if editor.stopPlaybackIfPastRange(frame: frame) { return }
                     self.textController.tick(frame)
                 } else {
                     editor.sourcePlayheadFrame = frame

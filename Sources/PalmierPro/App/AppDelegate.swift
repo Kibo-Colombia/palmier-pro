@@ -1,6 +1,10 @@
 import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        KomaURLHandler.shared.install()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Activate the app (required when launched from CLI, not a .app bundle)
         NSApp.setActivationPolicy(.regular)
@@ -21,6 +25,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Always-on library understanding: watch the roots and index new footage without
         // requiring the Library tab.
         RootsWatcher.shared.start()
+
+        KomaURLHandler.shared.launchFinished()
     }
 
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {

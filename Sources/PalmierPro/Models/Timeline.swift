@@ -12,6 +12,7 @@ struct Timeline: Codable, Sendable, Equatable {
     var height: Int = 1080
     var settingsConfigured: Bool = false
     var tracks: [Track] = []
+    var markers: [TimelineMarker] = []
 
     var totalFrames: Int {
         var maxFrame = 0
@@ -19,6 +20,35 @@ struct Timeline: Codable, Sendable, Equatable {
             maxFrame = max(maxFrame, track.endFrame)
         }
         return maxFrame
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case fps, width, height, settingsConfigured, tracks, markers
+    }
+}
+
+extension Timeline {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            fps: try c.decode(Int.self, forKey: .fps),
+            width: try c.decode(Int.self, forKey: .width),
+            height: try c.decode(Int.self, forKey: .height),
+            settingsConfigured: try c.decode(Bool.self, forKey: .settingsConfigured),
+            tracks: try c.decode([Track].self, forKey: .tracks),
+            markers: (try? c.decodeIfPresent([TimelineMarker].self, forKey: .markers)) ?? []
+        )
+    }
+
+    // Marker-less projects encode exactly as before, so their saved files and revisions don't change.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(fps, forKey: .fps)
+        try c.encode(width, forKey: .width)
+        try c.encode(height, forKey: .height)
+        try c.encode(settingsConfigured, forKey: .settingsConfigured)
+        try c.encode(tracks, forKey: .tracks)
+        if !markers.isEmpty { try c.encode(markers, forKey: .markers) }
     }
 }
 

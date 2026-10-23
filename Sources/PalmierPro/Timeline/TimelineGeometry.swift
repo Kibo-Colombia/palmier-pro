@@ -10,7 +10,9 @@ enum TrackDropTarget: Equatable {
 struct TimelineGeometry {
     let pixelsPerFrame: Double
     let headerWidth: Double
+    /// Includes the marker lane above the ticks when the timeline has markers.
     let rulerHeight: CGFloat
+    let markerLaneHeight: CGFloat
     let trackCount: Int
     let trackHeights: [CGFloat]
     let bounds: NSRect
@@ -24,14 +26,16 @@ struct TimelineGeometry {
             pixelsPerFrame: editor.zoomScale,
             headerWidth: headerWidth,
             trackHeights: editor.timeline.tracks.map(\.displayHeight),
-            bounds: bounds
+            bounds: bounds,
+            markerLaneHeight: editor.timelineMarkerLaneHeight
         )
     }
 
-    init(pixelsPerFrame: Double, headerWidth: Double = 0, trackHeights: [CGFloat], bounds: NSRect = .zero) {
+    init(pixelsPerFrame: Double, headerWidth: Double = 0, trackHeights: [CGFloat], bounds: NSRect = .zero, markerLaneHeight: CGFloat = 0) {
         self.pixelsPerFrame = pixelsPerFrame
         self.headerWidth = headerWidth
-        self.rulerHeight = Layout.rulerHeight
+        self.markerLaneHeight = markerLaneHeight
+        self.rulerHeight = Layout.rulerHeight + markerLaneHeight
         self.trackCount = trackHeights.count
         self.trackHeights = trackHeights
         self.bounds = bounds

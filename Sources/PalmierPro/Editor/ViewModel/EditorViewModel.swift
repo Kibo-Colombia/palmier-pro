@@ -69,6 +69,8 @@ final class EditorViewModel {
     }
     var activeFrame: Int { playheadState.timelineFrame }
     var isPlaying: Bool = false
+    /// Set by `playRange`; playback pauses on reaching it. Any manual seek or pause clears it.
+    @ObservationIgnored var playbackStopFrame: Int?
     var selectedClipIds: Set<String> = []
     var isMarqueeSelecting: Bool = false
     var selectedGap: GapSelection?
@@ -238,6 +240,7 @@ final class EditorViewModel {
     }
 
     func seekToFrame(_ frame: Int, mode: PreviewSeekMode = .exact) {
+        playbackStopFrame = nil
         let clamped = min(max(0, frame), max(0, timeline.totalFrames))
         if mode == .interactiveScrub {
             playheadState.timelineFrame = clamped

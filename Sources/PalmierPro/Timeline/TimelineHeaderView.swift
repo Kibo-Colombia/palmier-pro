@@ -34,12 +34,12 @@ final class TimelineHeaderView: NSView {
         ctx.setFillColor(Self.headerBg)
         ctx.fill(bounds)
 
-        let rulerBottom = bounds.origin.y + Layout.rulerHeight - 0.5
+        let rulerBottom = bounds.origin.y + editor.timelineRulerHeight - 0.5
         ctx.setFillColor(AppTheme.Border.primary.cgColor)
         ctx.fill(NSRect(x: 0, y: rulerBottom, width: bounds.width, height: 1))
 
         // Clip drawing below the ruler so headers don't overlap it when scrolled
-        let clipTop = bounds.origin.y + Layout.rulerHeight
+        let clipTop = bounds.origin.y + editor.timelineRulerHeight
         ctx.clip(to: NSRect(x: bounds.origin.x, y: clipTop, width: bounds.width, height: bounds.height))
 
         muteButtonRects.removeAll()

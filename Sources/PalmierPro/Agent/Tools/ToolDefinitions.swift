@@ -13,6 +13,11 @@ enum ToolName: String, CaseIterable, Sendable {
     case applyEdit = "apply_edit"
     case setTrackProperties = "set_track_properties"
     case getTimeline = "get_timeline"
+    case addMarkers = "add_markers"
+    case listMarkers = "list_markers"
+    case updateMarker = "update_marker"
+    case removeMarkers = "remove_markers"
+    case playRange = "play_range"
     case getMedia = "get_media"
     case addClips = "add_clips"
     case removeClips = "remove_clips"
@@ -69,7 +74,7 @@ enum ToolDefinitions {
     static let all: [AgentTool] = [
         AgentTool(
             name: .getTimeline,
-            description: "Always call at the start of a session. Returns revision (SHA256 of the full timeline and media manifest), projectId, project settings (fps, resolution, totalFrames), track list with types and order, all clips with their frames and properties, and canGenerate (if false, generation/upscale tools will fail — tell the user to sign in to Palmier and subscribe before attempting them). The clipId/trackId values here are what every other tool accepts.\n\nClip and track fields equal to their defaults are omitted: mediaType 'video', sourceClipType = mediaType, speed 1, volume 1, opacity 1, trims/fades 0, identity transform/crop, default textStyle, track muted/hidden false. Text clips never report trims (no source media).\n\nCaption clips (sharing a captionGroupId) come back per track as captionGroups instead of clips entries: properties common to the group are hoisted into 'shared' and each clip is a [clipId, startFrame, durationFrames, text] row (caption box width/height are auto-fit per text and omitted). Rows are capped at 200 per group — when clipCount exceeds the rows shown, page with startFrame/endFrame. Caption clips whose properties deviate from the group appear individually in clips.",
+            description: "Always call at the start of a session. Returns revision (SHA256 of the full timeline and media manifest), projectId, project settings (fps, resolution, totalFrames), track list with types and order, all clips with their frames and properties, markers (named points/ranges on the ruler, with frames and seconds), and canGenerate (if false, generation/upscale tools will fail — tell the user to sign in to Palmier and subscribe before attempting them). The clipId/trackId values here are what every other tool accepts.\n\nClip and track fields equal to their defaults are omitted: mediaType 'video', sourceClipType = mediaType, speed 1, volume 1, opacity 1, trims/fades 0, identity transform/crop, default textStyle, track muted/hidden false. Text clips never report trims (no source media).\n\nCaption clips (sharing a captionGroupId) come back per track as captionGroups instead of clips entries: properties common to the group are hoisted into 'shared' and each clip is a [clipId, startFrame, durationFrames, text] row (caption box width/height are auto-fit per text and omitted). Rows are capped at 200 per group — when clipCount exceeds the rows shown, page with startFrame/endFrame. Caption clips whose properties deviate from the group appear individually in clips.",
             inputSchema: objectSchema(
                 properties: [
                     "startFrame": ["type": "integer", "description": "Optional. Window start (inclusive); only clips intersecting [startFrame, endFrame) are returned. Tracks report totalClips when the window hides some."],
@@ -826,7 +831,7 @@ enum ToolDefinitions {
                 ]
             )
         ),
-    ] + AutomationToolDefinitions.all
+    ] + AutomationToolDefinitions.all + MarkerToolDefinitions.all
 
     private static func objectSchema(
         properties: [String: [String: Any]] = [:],

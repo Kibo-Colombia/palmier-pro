@@ -66,6 +66,19 @@ The easiest way is go inside the app `Help` -> `MCP Instructions` -> `Install in
 
 We bundle a [mcpb](https://github.com/modelcontextprotocol/mcpb) with the app that allows a one click install Desktop Extension on Claude Desktop. Go to `Help` -> `MCP Instructions` -> `Install in Claude Desktop`
 
+### Markers and `koma://play`
+
+Timelines carry named markers (points or ranges, Resolve's 16 colors), drawn as labelled blocks above the ruler and saved in the `.palmier` project. Click one to jump there. Agents manage them with `add_markers`, `list_markers`, `update_marker` and `remove_markers`; `get_timeline` lists them too.
+
+To open a project and play exactly a range from outside the app (Koma launches if it is closed and reuses an open window):
+
+```bash
+open "koma://play?project=%2FUsers%2Fme%2FFilm.palmier&start=442.8&end=462.03"
+open "koma://play?project=%2FUsers%2Fme%2FFilm.palmier&marker=HOOK%202"
+```
+
+The `play_range` MCP tool takes the same arguments. Full contract: [docs/markers-and-play-range.md](docs/markers-and-play-range.md).
+
 ## FAQ
 
 **Is Palmier Pro fully open source?**

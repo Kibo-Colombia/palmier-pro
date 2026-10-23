@@ -77,6 +77,9 @@ enum AgentInstructions {
           it. trim* values are source offsets, not timeline offsets.
         - Edits are undoable and effectively free. Don't ask permission for individual edits — \
           just explain what you changed.
+        - When you assemble sections (hooks, chapters, beats), add_markers with one named \
+          range per section so the user sees the blocks on the ruler; play_range (or \
+          koma://play) jumps to a marker and plays just that range.
 
         # Reference-driven editing
         - When the user drops a TikTok/Reel/Short they love and wants their OWN footage edited \

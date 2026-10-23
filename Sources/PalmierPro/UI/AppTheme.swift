@@ -143,6 +143,31 @@ enum AppTheme {
         static let adjustment = NSColor(red: 0xC8/255.0, green: 0x8A/255.0, blue: 0x1F/255.0, alpha: 1)
     }
 
+    // MARK: - Timeline marker colors
+
+    enum MarkerColors {
+        static func color(_ color: MarkerColor) -> NSColor {
+            switch color {
+            case .blue: NSColor(red: 0x2F/255.0, green: 0x7B/255.0, blue: 0xF6/255.0, alpha: 1)
+            case .cyan: NSColor(red: 0x1F/255.0, green: 0xC8/255.0, blue: 0xD8/255.0, alpha: 1)
+            case .green: NSColor(red: 0x3F/255.0, green: 0xB9/255.0, blue: 0x50/255.0, alpha: 1)
+            case .yellow: NSColor(red: 0xE8/255.0, green: 0xC5/255.0, blue: 0x1E/255.0, alpha: 1)
+            case .red: NSColor(red: 0xE5/255.0, green: 0x48/255.0, blue: 0x3F/255.0, alpha: 1)
+            case .pink: NSColor(red: 0xF0/255.0, green: 0x6E/255.0, blue: 0xB4/255.0, alpha: 1)
+            case .purple: NSColor(red: 0x8E/255.0, green: 0x5B/255.0, blue: 0xE0/255.0, alpha: 1)
+            case .fuchsia: NSColor(red: 0xC8/255.0, green: 0x3B/255.0, blue: 0xC4/255.0, alpha: 1)
+            case .rose: NSColor(red: 0xE8/255.0, green: 0x86/255.0, blue: 0x8F/255.0, alpha: 1)
+            case .lavender: NSColor(red: 0xA9/255.0, green: 0x9C/255.0, blue: 0xE6/255.0, alpha: 1)
+            case .sky: NSColor(red: 0x7F/255.0, green: 0xC4/255.0, blue: 0xF0/255.0, alpha: 1)
+            case .mint: NSColor(red: 0x6F/255.0, green: 0xD8/255.0, blue: 0xB0/255.0, alpha: 1)
+            case .lemon: NSColor(red: 0xD9/255.0, green: 0xE8/255.0, blue: 0x5C/255.0, alpha: 1)
+            case .sand: NSColor(red: 0xC9/255.0, green: 0xA8/255.0, blue: 0x72/255.0, alpha: 1)
+            case .cocoa: NSColor(red: 0x8A/255.0, green: 0x5D/255.0, blue: 0x3B/255.0, alpha: 1)
+            case .cream: NSColor(red: 0xEC/255.0, green: 0xE0/255.0, blue: 0xC6/255.0, alpha: 1)
+            }
+        }
+    }
+
     // MARK: - Corner radii
 
     enum Radius {

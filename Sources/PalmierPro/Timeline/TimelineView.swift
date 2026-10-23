@@ -253,8 +253,17 @@ final class TimelineView: NSView {
             ctx.setLineDash(phase: 0, lengths: [])
         }
 
+        let laneHeight = Double(geo.markerLaneHeight)
+        if laneHeight > 0 {
+            TimelineMarkerLane.draw(
+                editor.timeline.markers,
+                in: NSRect(x: scrollOffset.x, y: scrollOffset.y, width: visibleWidth, height: laneHeight),
+                geometry: geo,
+                context: ctx
+            )
+        }
         TimelineRuler.draw(
-            in: NSRect(x: scrollOffset.x, y: scrollOffset.y, width: visibleWidth, height: Double(geo.rulerHeight)),
+            in: NSRect(x: scrollOffset.x, y: scrollOffset.y + laneHeight, width: visibleWidth, height: Double(Layout.rulerHeight)),
             fps: editor.timeline.fps,
             pixelsPerFrame: geo.pixelsPerFrame,
             scrollOffsetX: scrollOffset.x,

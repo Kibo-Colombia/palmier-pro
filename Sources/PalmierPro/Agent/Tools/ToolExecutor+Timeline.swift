@@ -38,6 +38,7 @@ extension ToolExecutor {
             dict["tracks"] = tracks
         }
         dict["totalFrames"] = editor.timeline.totalFrames
+        dict["markers"] = editor.timeline.markers.map { Self.markerObject($0, fps: editor.timeline.fps) }
         dict["revision"] = editor.editRevision
         dict["projectId"] = editor.projectId
         dict["volumeTrackUnits"] = "db"

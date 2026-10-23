@@ -69,6 +69,7 @@ final class PlayheadOverlay {
         withObservationTracking {
             _ = editor?.playheadState.timelineFrame
             _ = editor?.zoomScale
+            _ = editor?.timelineRulerHeight
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.update()

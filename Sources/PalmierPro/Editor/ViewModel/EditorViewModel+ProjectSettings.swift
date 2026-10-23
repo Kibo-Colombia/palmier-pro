@@ -27,6 +27,11 @@ extension EditorViewModel {
             let scale = Double(fps) / Double(prevFPS)
             currentFrame = Int((Double(currentFrame) * scale).rounded())
             sourcePlayheadFrame = Int((Double(sourcePlayheadFrame) * scale).rounded())
+            for mi in timeline.markers.indices {
+                let marker = timeline.markers[mi]
+                timeline.markers[mi].startFrame = Int((Double(marker.startFrame) * scale).rounded())
+                timeline.markers[mi].durationFrames = Int((Double(marker.durationFrames) * scale).rounded())
+            }
             for ti in timeline.tracks.indices {
                 let clipIndices = timeline.tracks[ti].clips.indices.sorted {
                     timeline.tracks[ti].clips[$0].startFrame < timeline.tracks[ti].clips[$1].startFrame

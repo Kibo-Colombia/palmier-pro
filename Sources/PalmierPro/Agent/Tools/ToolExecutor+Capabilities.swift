@@ -19,7 +19,7 @@ extension ToolExecutor {
             "sourceDirty": Bundle.main.object(forInfoDictionaryKey: "KomaSourceDirty") as? Bool ?? true,
             "schemaFingerprint": fingerprint,
             "tools": schemas.compactMap { $0["name"] as? String }.sorted(),
-            "features": ["projectLifecycle", "atomicEdits", "revisionGuards", "idempotentEdits", "beatTiming", "trackMute", "exportJobs"],
+            "features": ["projectLifecycle", "atomicEdits", "revisionGuards", "idempotentEdits", "beatTiming", "trackMute", "exportJobs", "markers", "playRange"],
             "audioUnits": ["clipVolume": "linear", "keyframesDefault": "linear", "keyframesSupported": ["linear", "db"], "projectVolumeTrack": "db", "silenceDb": VolumeScale.floorDb],
             "timingUnits": "frames"
         ]

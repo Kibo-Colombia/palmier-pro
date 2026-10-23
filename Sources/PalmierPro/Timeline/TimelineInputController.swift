@@ -54,6 +54,11 @@ final class TimelineInputController {
 
         if point.y >= scrollOffsetY && point.y < scrollOffsetY + geometry.rulerHeight {
             let frame = geometry.frameAt(x: point.x)
+            if point.y < scrollOffsetY + geometry.markerLaneHeight,
+               let marker = TimelineMarkerLane.hitTest(editor.timeline.markers, x: point.x, geometry: geometry) {
+                editor.seekToFrame(marker.startFrame)
+                return
+            }
             if let edge = timelineRangeEdgeHit(at: point, geometry: geometry) {
                 beginTimelineRangeEdgeDrag(edge)
             } else if event.modifierFlags.contains(.shift) {

@@ -28,6 +28,7 @@ final class ToolExecutor {
             case .openProject: return try await openProject(args)
             case .getExportJob: return try getExportJob(args)
             case .cancelExport: return try await cancelExport(args)
+            case .playRange: return try await playRange(args)
             default: break
             }
             guard let editor else { return .error("Editor not available") }
@@ -37,9 +38,13 @@ final class ToolExecutor {
             case .startExport: return try startExport(editor, args)
             case .applyEdit: return try applyEdit(editor, args)
             case .setTrackProperties: return try setTrackProperties(editor, args)
-            case .getCapabilities, .createProject, .openProject, .getExportJob, .cancelExport:
+            case .getCapabilities, .createProject, .openProject, .getExportJob, .cancelExport, .playRange:
                 throw ToolError("Unexpected project-independent dispatch")
             case .getTimeline:   return try getTimeline(editor, args)
+            case .addMarkers:    return try addMarkers(editor, args)
+            case .listMarkers:   return try listMarkers(editor, args)
+            case .updateMarker:  return try updateMarker(editor, args)
+            case .removeMarkers: return try removeMarkers(editor, args)
             case .getMedia:      return try getMedia(editor)
             case .inspectMedia:  return try await inspectMedia(editor, args)
             case .inspectTimeline: return try await inspectTimeline(editor, args)

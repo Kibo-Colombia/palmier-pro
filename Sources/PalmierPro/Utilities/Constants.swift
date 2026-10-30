@@ -31,6 +31,11 @@ enum Layout {
     static let inspectorDefault: CGFloat = 260
     static let inspectorMin: CGFloat = 150
 
+    // Default preset proportions every project opens with
+    static let upperDefaultFraction: CGFloat = 0.55
+    static let mediaPanelDefaultFraction: CGFloat = 0.2
+    static let inspectorDefaultFraction: CGFloat = 0.33
+
     // Agent panel
     static let agentPanelMin: CGFloat = 240
     static let agentPanelMax: CGFloat = 640
@@ -60,6 +65,7 @@ enum Layout {
 
 enum Defaults {
     static let pixelsPerFrame: Double = 4.0
+    static let openingVisibleSeconds: Double = 12
     static let imageDurationSeconds: Double = 5.0
     static let audioTTSDurationSeconds: Double = 10.0
     static let audioMusicDurationSeconds: Double = 60.0

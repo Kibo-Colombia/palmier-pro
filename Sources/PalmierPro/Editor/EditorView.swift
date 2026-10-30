@@ -223,9 +223,9 @@ final class EditorSplitViewController: PaddedDividerSplitViewController {
             guard let target, let hSplit else { return }
             let targetH = target.view.bounds.height
             let hW = hSplit.view.bounds.width
-            target.splitView.setPosition(round(targetH * 0.7), ofDividerAt: 0)
-            hSplit.splitView.setPosition(Layout.mediaPanelDefault, ofDividerAt: 0)
-            hSplit.splitView.setPosition(hW - Layout.inspectorDefault, ofDividerAt: 1)
+            target.splitView.setPosition(round(targetH * Layout.upperDefaultFraction), ofDividerAt: 0)
+            hSplit.splitView.setPosition(round(hW * Layout.mediaPanelDefaultFraction), ofDividerAt: 0)
+            hSplit.splitView.setPosition(round(hW * (1 - Layout.inspectorDefaultFraction)), ofDividerAt: 1)
         }
     }
 

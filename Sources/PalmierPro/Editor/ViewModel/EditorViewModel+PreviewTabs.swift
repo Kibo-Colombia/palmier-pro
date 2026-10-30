@@ -19,6 +19,14 @@ extension EditorViewModel {
         return min(Zoom.max, max(Zoom.floor, fitAll))
     }
 
+    /// Zoom a project opens at: about `Defaults.openingVisibleSeconds` across the view.
+    var openingZoomScale: Double {
+        let availableWidth = timelineVisibleWidth - Double(Layout.trackHeaderWidth)
+        guard availableWidth > 0, timeline.fps > 0 else { return Defaults.pixelsPerFrame }
+        let scale = availableWidth / (Defaults.openingVisibleSeconds * Double(timeline.fps))
+        return min(Zoom.max, max(minZoomScale, scale))
+    }
+
     var activePreviewDurationFrames: Int {
         switch activePreviewTab {
         case .timeline:

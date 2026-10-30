@@ -40,6 +40,8 @@ final class EditorSplitViewController: PaddedDividerSplitViewController {
     private var currentPreset: LayoutPreset?
     private var currentMaximized: EditorViewModel.FocusedPanel?
     private var pendingPositioning: (() -> Void)?
+    private var lastPositioning: (() -> Void)?
+    private var hasAppeared = false
     private var isPositioning = false
     private weak var agentSplitItem: NSSplitViewItem?
     private weak var mediaSplitItem: NSSplitViewItem?
@@ -343,7 +345,16 @@ final class EditorSplitViewController: PaddedDividerSplitViewController {
         updateTourFrame()   // see EditorSplitViewController+Tour.swift
     }
 
+    // The window reaches its restored size only after first layout, so proportions are reapplied once on appear.
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        guard !hasAppeared else { return }
+        hasAppeared = true
+        if let lastPositioning { applyAfterLayout(lastPositioning) }
+    }
+
     private func applyAfterLayout(_ apply: @escaping () -> Void) {
+        lastPositioning = apply
         pendingPositioning = { [weak self] in
             guard let self else { return }
             apply()

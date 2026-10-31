@@ -41,10 +41,7 @@ enum AlphaVideoNormalizer {
 
     /// Cache key fragment that busts when the underlying file is replaced.
     private static func cacheTag(for url: URL) -> String {
-        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
-        let size = (attrs?[.size] as? Int) ?? 0
-        let modified = (attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
-        return "\(size)_\(Int(modified))"
+        MediaFileStamp(url: url)?.token ?? "0"
     }
 
     private static func transcode(

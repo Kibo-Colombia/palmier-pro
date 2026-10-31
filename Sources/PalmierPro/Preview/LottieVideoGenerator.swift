@@ -63,7 +63,8 @@ enum LottieVideoGenerator {
     @MainActor
     static func lottieVideo(for url: URL, mediaRef: String, size: CGSize) async throws -> URL {
         let target = clampedForEncoder(size)
-        let filename = "\(mediaRef)_\(Int(target.width))x\(Int(target.height)).mov"
+        let stamp = MediaFileStamp(url: url)?.token ?? "0"
+        let filename = "\(mediaRef)_\(stamp)_\(Int(target.width))x\(Int(target.height)).mov"
         let outputURL = cacheDirectory.appendingPathComponent(filename)
         if FileManager.default.fileExists(atPath: outputURL.path) { return outputURL }
 

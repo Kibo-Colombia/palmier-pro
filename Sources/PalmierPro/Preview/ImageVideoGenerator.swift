@@ -22,12 +22,15 @@ enum ImageVideoGenerator {
         let size = clampedForEncoder(size)
         let hasAlpha = imageHasAlpha(url: imageURL)
         let suffix = hasAlpha ? "_a" : "_o"
-        let filename = "\(mediaRef)_\(Int(size.width))x\(Int(size.height))\(suffix).mov"
+        // The stamp keys the cache to the file's bytes, so an image rewritten in place re-renders.
+        let stamp = MediaFileStamp(url: imageURL)?.token ?? "0"
+        let filename = "\(mediaRef)_\(stamp)_\(Int(size.width))x\(Int(size.height))\(suffix).mov"
         let outputURL = cacheDirectory.appendingPathComponent(filename)
 
         if FileManager.default.fileExists(atPath: outputURL.path) {
             return outputURL
         }
+        removeStaleStills(mediaRef: mediaRef, stamp: stamp)
 
         do {
             guard let nsImage = NSImage(contentsOf: imageURL) else {
@@ -43,6 +46,15 @@ enum ImageVideoGenerator {
         } catch {
             Log.preview.error("stillVideo failed file=\(imageURL.lastPathComponent) size=\(Int(size.width))x\(Int(size.height)): \(error.localizedDescription)")
             throw error
+        }
+    }
+
+    private static func removeStaleStills(mediaRef: String, stamp: String) {
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: cacheDirectory.path) else { return }
+        for name in names where name.hasPrefix("\(mediaRef)_") && !name.hasPrefix("\(mediaRef)_\(stamp)_")
+            && (name.hasSuffix("_o.mov") || name.hasSuffix("_a.mov")) {
+            try? fm.removeItem(at: cacheDirectory.appendingPathComponent(name))
         }
     }
 

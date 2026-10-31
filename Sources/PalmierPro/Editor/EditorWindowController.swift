@@ -235,6 +235,10 @@ extension EditorWindowController: EditorActions {
         // Handled by MediaTab directly
     }
 
+    @objc func refreshMedia(_ sender: Any?) {
+        editorViewModel.refreshMediaFromDisk()
+    }
+
     @objc func showExport(_ sender: Any?) {
         editorViewModel.showExportDialog = true
     }

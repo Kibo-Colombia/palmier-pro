@@ -157,6 +157,7 @@ final class VideoProject: NSDocument {
     // MARK: - Close
 
     override func close() {
+        editorViewModel.stopWatchingMediaFiles()
         super.close()
         DispatchQueue.main.async {
             if AppState.shared.activeProject === self {
@@ -230,6 +231,7 @@ final class VideoProject: NSDocument {
             editorViewModel.seedGenerationLogFromAssets()
         }
         editorViewModel.searchIndex.projectOpened()
+        editorViewModel.startWatchingMediaFiles()
     }
 
     // MARK: - Thumbnail

@@ -54,6 +54,10 @@ enum MainMenuBuilder {
         importItem.keyEquivalentModifierMask = [.command]
         menu.addItem(importItem)
 
+        let refreshItem = NSMenuItem(title: "Refresh Media from Disk", action: #selector(EditorActions.refreshMedia(_:)), keyEquivalent: "R")
+        refreshItem.keyEquivalentModifierMask = [.command, .shift]
+        menu.addItem(refreshItem)
+
         menu.addItem(.separator())
 
         let exportItem = NSMenuItem(title: "Export…", action: #selector(EditorActions.showExport(_:)), keyEquivalent: "e")
@@ -179,6 +183,7 @@ enum MainMenuBuilder {
     func trimEndToPlayhead(_ sender: Any?)
     func deleteSelectedClips(_ sender: Any?)
     func importMedia(_ sender: Any?)
+    func refreshMedia(_ sender: Any?)
     func playPause(_ sender: Any?)
     func stepFrameForward(_ sender: Any?)
     func stepFrameBackward(_ sender: Any?)

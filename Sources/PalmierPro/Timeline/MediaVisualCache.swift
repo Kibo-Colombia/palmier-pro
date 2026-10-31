@@ -57,6 +57,17 @@ final class MediaVisualCache {
         MainActor.assumeIsolated { imageThumbnails[mediaRef] }
     }
 
+    /// Drops an asset's in-memory visuals so the next generate call re-reads its file.
+    func invalidate(_ mediaRef: String) {
+        waveformSamples[mediaRef] = nil
+        waveformInFlight.remove(mediaRef)
+        videoThumbnails[mediaRef] = nil
+        videoThumbnailInFlight.remove(mediaRef)
+        thumbnailLastUse[mediaRef] = nil
+        imageThumbnails[mediaRef] = nil
+        imageThumbnailInFlight.remove(mediaRef)
+    }
+
     // MARK: - Async generation
 
     func generateWaveform(for asset: MediaAsset) {

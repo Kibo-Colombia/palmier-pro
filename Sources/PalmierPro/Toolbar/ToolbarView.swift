@@ -39,6 +39,11 @@ struct ToolbarView: View {
                 textGlyphButton("T", help: "Add Text", action: { _ = editor.addTextClip() })
             }
 
+            Divider()
+                .frame(height: AppTheme.Spacing.xl)
+
+            toolbarButton("arrow.clockwise", help: "Refresh Media from Disk (⇧⌘R)", action: editor.refreshMediaFromDisk)
+
             Spacer()
 
             // Zoom

@@ -23,6 +23,8 @@ final class MediaAsset: Identifiable {
     /// True when this asset is a *reference* — a downloaded video dropped in for style analysis,
     /// not a clip to cut. The recipe analysis reads it; the timeline never references it.
     var isReference: Bool = false
+    /// The file as last read; a different stamp on disk means the bytes changed underneath us.
+    var fileStamp: MediaFileStamp?
 
     /// Returns the cached URL if it's set AND not expired; else nil.
     var freshRemoteURL: String? {
@@ -62,6 +64,7 @@ final class MediaAsset: Identifiable {
         self.thumbnail = thumbnail
         self.generationInput = generationInput
         self.hasAudio = (type == .video)
+        self.fileStamp = MediaFileStamp(url: url)
     }
 
     /// Reconstruct from a manifest entry + resolved URL.
@@ -99,6 +102,7 @@ final class MediaAsset: Identifiable {
     }
 
     func loadMetadata() async {
+        fileStamp = MediaFileStamp(url: url)
         if type == .image {
             duration = Defaults.imageDurationSeconds
             thumbnail = NSImage(contentsOf: url)

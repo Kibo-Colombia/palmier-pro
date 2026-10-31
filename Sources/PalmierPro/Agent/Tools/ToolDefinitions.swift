@@ -796,7 +796,7 @@ enum ToolDefinitions {
         ),
         AgentTool(
             name: .deleteMedia,
-            description: "Deletes media assets from the library. Any clips referencing them are removed from the timeline in the same undoable action.",
+            description: "Deletes media assets from the library. Any clips referencing them are removed from the timeline in the same undoable action. Pass missing:true to delete every asset whose file is gone from disk (get_media marks them missing:true).",
             inputSchema: objectSchema(
                 properties: [
                     "assetIds": [
@@ -804,8 +804,12 @@ enum ToolDefinitions {
                         "items": ["type": "string"],
                         "description": "Media asset ids to delete.",
                     ],
+                    "missing": [
+                        "type": "boolean",
+                        "description": "Delete every asset whose source file is missing on disk, alone or alongside assetIds.",
+                    ],
                 ],
-                required: ["assetIds"]
+                required: []
             )
         ),
         AgentTool(

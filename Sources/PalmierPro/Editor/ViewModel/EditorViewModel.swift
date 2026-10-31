@@ -127,6 +127,7 @@ final class EditorViewModel {
 
     var mediaAssets: [MediaAsset] = []
     let mediaVisualCache = MediaVisualCache()
+    @ObservationIgnored var mediaWatchTask: Task<Void, Never>?
     let searchIndex = SearchIndexCoordinator()
     var projectURL: URL?
     var projectId: String? {

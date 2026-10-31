@@ -268,8 +268,18 @@ extension ToolExecutor {
     }
 
     func getMedia(_ editor: EditorViewModel) throws -> ToolResult {
-        guard let obj = Self.encodeAsJSONObject(editor.mediaManifest),
-              let json = Self.jsonString(roundJSONFloatingPointNumbers(obj, toPlaces: 3)) else {
+        editor.reloadChangedMedia()
+        guard var obj = Self.encodeAsJSONObject(editor.mediaManifest) as? [String: Any] else {
+            throw ToolError("Failed to encode media manifest")
+        }
+        let missing = editor.missingMediaAssetIds
+        if !missing.isEmpty, let entries = obj["entries"] as? [[String: Any]] {
+            obj["entries"] = entries.map { entry in
+                guard let id = entry["id"] as? String, missing.contains(id) else { return entry }
+                return entry.merging(["missing": true]) { $1 }
+            }
+        }
+        guard let json = Self.jsonString(roundJSONFloatingPointNumbers(obj, toPlaces: 3)) else {
             throw ToolError("Failed to encode media manifest")
         }
         return .ok(json)

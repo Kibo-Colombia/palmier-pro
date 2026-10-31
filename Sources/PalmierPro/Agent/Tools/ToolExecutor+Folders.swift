@@ -95,14 +95,16 @@ extension ToolExecutor {
     }
 
     func deleteMedia(_ editor: EditorViewModel, _ args: [String: Any]) throws -> ToolResult {
-        let assetIds = args.stringArray("assetIds")
-        guard !assetIds.isEmpty else { throw ToolError("assetIds is required") }
+        var assetIds = Set(args.stringArray("assetIds"))
+        let missing = args["missing"] as? Bool ?? false
+        guard !assetIds.isEmpty || missing else { throw ToolError("assetIds is required unless missing is true") }
         for id in assetIds {
             guard editor.mediaAssets.contains(where: { $0.id == id }) else {
                 throw ToolError("Media asset not found: \(id)")
             }
         }
-        editor.deleteMediaAssets(ids: Set(assetIds))
+        if missing { assetIds.formUnion(editor.missingMediaAssetIds) }
+        editor.deleteMediaAssets(ids: assetIds)
         return .ok("Deleted \(assetIds.count) asset(s). Any clips referencing them were removed from the timeline.")
     }
 

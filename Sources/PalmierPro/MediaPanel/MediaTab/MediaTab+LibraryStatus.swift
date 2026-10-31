@@ -68,7 +68,8 @@ extension MediaTab {
         case .generating, .downloading, .rendering: return .generating
         case .none: break
         }
-        if editor.mediaResolver.isMissing(for: asset.id) { return .missing }
+        // Reading fileStamp ties the pill to the file watcher, which clears it when a file disappears.
+        if asset.fileStamp == nil, editor.mediaResolver.isMissing(for: asset.id) { return .missing }
         // File is present — has its metadata finished loading?
         switch asset.type {
         case .video, .image: return asset.thumbnail == nil ? .loading : .ready
@@ -181,6 +182,14 @@ extension MediaTab {
                     }
                 }
                 .frame(maxHeight: 200)
+                if let missing = snapshot.counts[.missing], missing > 0 {
+                    Button("Remove \(missing) Missing") {
+                        showLibraryStatus = false
+                        editor.removeMissingMedia()
+                    }
+                    .controlSize(.small)
+                    .help("Delete library entries whose file is gone from disk")
+                }
             } else {
                 Text("Everything's loaded and accounted for.")
                     .font(.system(size: AppTheme.FontSize.xs))

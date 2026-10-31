@@ -7,6 +7,7 @@ enum AlphaVideoNormalizer {
 
     /// Returns cached premultiplied-alpha video if source has straight alpha; else nil.
     static func premultipliedVideo(for sourceURL: URL, mediaRef: String) async throws -> URL? {
+        _ = abandonedWritesCleared
         let asset = AVURLAsset(url: sourceURL)
         guard let track = try await asset.loadTracks(withMediaType: .video).first,
               try await trackContainsAlpha(track) else { return nil }
@@ -24,7 +25,12 @@ enum AlphaVideoNormalizer {
         if FileManager.default.fileExists(atPath: outputURL.path) { return outputURL }
 
         do {
-            return try await transcode(asset: asset, track: track, size: size, to: outputURL)
+            // Rebuilds arrive faster than a long transcode finishes; they all wait on the one in flight.
+            let url = try await inFlight.run(outputURL) {
+                try await transcode(sourceURL: sourceURL, size: size, to: outputURL)
+            }
+            removeStaleVersions(mediaRef: mediaRef, keeping: filename)
+            return url
         } catch {
             Log.preview.error("alpha premultiply failed mediaRef=\(mediaRef): \(error.localizedDescription)")
             return nil
@@ -39,17 +45,35 @@ enum AlphaVideoNormalizer {
         ) as? Bool ?? false
     }
 
+    private static let inFlight = InFlightTranscodes()
+
+    /// Temp files left by a quit mid-transcode; nothing is writing yet on the first call of a launch.
+    private static let abandonedWritesCleared: Void = {
+        let fm = FileManager.default
+        let dir = ImageVideoGenerator.cacheDirectory
+        for name in (try? fm.contentsOfDirectory(atPath: dir.path)) ?? [] where name.hasPrefix(".writing-") {
+            try? fm.removeItem(at: dir.appendingPathComponent(name))
+        }
+    }()
+
+    /// Each rewrite of the source leaves a full ProRes copy behind; keep only the current one.
+    private static func removeStaleVersions(mediaRef: String, keeping filename: String) {
+        let fm = FileManager.default
+        let dir = ImageVideoGenerator.cacheDirectory
+        guard let names = try? fm.contentsOfDirectory(atPath: dir.path) else { return }
+        for name in names where name != filename && name.hasPrefix("\(mediaRef)_") && name.hasSuffix("_premul.mov") {
+            try? fm.removeItem(at: dir.appendingPathComponent(name))
+        }
+    }
+
     /// Cache key fragment that busts when the underlying file is replaced.
     private static func cacheTag(for url: URL) -> String {
         MediaFileStamp(url: url)?.token ?? "0"
     }
 
-    private static func transcode(
-        asset: AVURLAsset,
-        track: AVAssetTrack,
-        size: CGSize,
-        to outputURL: URL
-    ) async throws -> URL {
+    private static func transcode(sourceURL: URL, size: CGSize, to outputURL: URL) async throws -> URL {
+        let asset = AVURLAsset(url: sourceURL)
+        guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw NormalizeError.readerSetupFailed }
         let reader = try AVAssetReader(asset: asset)
         let readerOutput = AVAssetReaderTrackOutput(track: track, outputSettings: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
@@ -87,36 +111,44 @@ enum AlphaVideoNormalizer {
         writer.startSession(atSourceTime: .zero)
 
         let queue = DispatchQueue(label: "io.palmier.alpha-normalize")
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            let resumed = OSAllocatedUnfairLock(initialState: false)
-            @Sendable func finish(_ result: Result<Void, Error>) {
-                let alreadyResumed = resumed.withLock { done -> Bool in
-                    defer { done = true }
-                    return done
+        do {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                let resumed = OSAllocatedUnfairLock(initialState: false)
+                @Sendable func finish(_ result: Result<Void, Error>) {
+                    let alreadyResumed = resumed.withLock { done -> Bool in
+                        defer { done = true }
+                        return done
+                    }
+                    guard !alreadyResumed else { return }
+                    cont.resume(with: result)
                 }
-                guard !alreadyResumed else { return }
-                cont.resume(with: result)
-            }
-            input.requestMediaDataWhenReady(on: queue) {
-                while input.isReadyForMoreMediaData {
-                    guard let sample = readerOutput.copyNextSampleBuffer() else {
-                        if reader.status == .failed {
-                            finish(.failure(reader.error ?? NormalizeError.readFailed))
-                        } else {
+                input.requestMediaDataWhenReady(on: queue) {
+                    while input.isReadyForMoreMediaData {
+                        guard let sample = readerOutput.copyNextSampleBuffer() else {
+                            // Without markAsFinished the writer keeps calling this block and spins forever.
                             input.markAsFinished()
-                            finish(.success(()))
+                            if reader.status == .completed {
+                                finish(.success(()))
+                            } else {
+                                finish(.failure(reader.error ?? NormalizeError.readFailed))
+                            }
+                            return
                         }
-                        return
-                    }
-                    guard let pixelBuffer = CMSampleBufferGetImageBuffer(sample) else { continue }
-                    premultiply(pixelBuffer)
-                    let pts = CMSampleBufferGetPresentationTimeStamp(sample)
-                    if !adaptor.append(pixelBuffer, withPresentationTime: pts) {
-                        finish(.failure(writer.error ?? NormalizeError.appendFailed))
-                        return
+                        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sample) else { continue }
+                        premultiply(pixelBuffer)
+                        let pts = CMSampleBufferGetPresentationTimeStamp(sample)
+                        if !adaptor.append(pixelBuffer, withPresentationTime: pts) {
+                            input.markAsFinished()
+                            finish(.failure(writer.error ?? NormalizeError.appendFailed))
+                            return
+                        }
                     }
                 }
             }
+        } catch {
+            reader.cancelReading()
+            writer.cancelWriting()
+            throw error
         }
 
         await writer.finishWriting()
@@ -156,5 +188,18 @@ enum AlphaVideoNormalizer {
             case .writeFailed: "could not finish writing"
             }
         }
+    }
+}
+
+/// One transcode per output file, however many rebuilds ask for it at once.
+private actor InFlightTranscodes {
+    private var tasks: [URL: Task<URL, Error>] = [:]
+
+    func run(_ outputURL: URL, _ work: @escaping @Sendable () async throws -> URL) async throws -> URL {
+        if let existing = tasks[outputURL] { return try await existing.value }
+        let task = Task { try await work() }
+        tasks[outputURL] = task
+        defer { tasks[outputURL] = nil }
+        return try await task.value
     }
 }

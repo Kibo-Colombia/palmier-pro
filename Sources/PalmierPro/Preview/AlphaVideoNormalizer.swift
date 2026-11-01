@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Accelerate
 import CoreVideo
@@ -47,12 +48,17 @@ enum AlphaVideoNormalizer {
 
     private static let inFlight = InFlightTranscodes()
 
-    /// Temp files left by a quit mid-transcode; nothing is writing yet on the first call of a launch.
+    /// Temp files left by a quit mid-transcode. Still-image encodes share the folder, so only
+    /// files untouched since before this launch go.
     private static let abandonedWritesCleared: Void = {
         let fm = FileManager.default
         let dir = ImageVideoGenerator.cacheDirectory
+        let cutoff = NSRunningApplication.current.launchDate ?? Date(timeIntervalSinceNow: -600)
         for name in (try? fm.contentsOfDirectory(atPath: dir.path)) ?? [] where name.hasPrefix(".writing-") {
-            try? fm.removeItem(at: dir.appendingPathComponent(name))
+            let url = dir.appendingPathComponent(name)
+            guard let modified = (try? fm.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date,
+                  modified < cutoff else { continue }
+            try? fm.removeItem(at: url)
         }
     }()
 
@@ -178,9 +184,10 @@ enum AlphaVideoNormalizer {
     }
 
     enum NormalizeError: LocalizedError {
-        case readerSetupFailed, writerSetupFailed, readFailed, appendFailed, writeFailed
+        case readerSetupFailed, writerSetupFailed, readFailed, appendFailed, writeFailed, failedEarlier
         var errorDescription: String? {
             switch self {
+            case .failedEarlier: "skipped; this file already failed to transcode"
             case .readerSetupFailed: "could not set up reader"
             case .writerSetupFailed: "could not set up writer"
             case .readFailed: "could not read source frames"
@@ -194,12 +201,20 @@ enum AlphaVideoNormalizer {
 /// One transcode per output file, however many rebuilds ask for it at once.
 private actor InFlightTranscodes {
     private var tasks: [URL: Task<URL, Error>] = [:]
+    // The output name carries the source's file stamp, so a rewritten source gets a fresh attempt.
+    private var failed: Set<URL> = []
 
     func run(_ outputURL: URL, _ work: @escaping @Sendable () async throws -> URL) async throws -> URL {
+        guard !failed.contains(outputURL) else { throw AlphaVideoNormalizer.NormalizeError.failedEarlier }
         if let existing = tasks[outputURL] { return try await existing.value }
         let task = Task { try await work() }
         tasks[outputURL] = task
         defer { tasks[outputURL] = nil }
-        return try await task.value
+        do {
+            return try await task.value
+        } catch {
+            if !(error is CancellationError) { failed.insert(outputURL) }
+            throw error
+        }
     }
 }
